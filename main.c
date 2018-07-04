@@ -20,7 +20,6 @@ mrm_bridge_outbound_hook(
   ) {
 
   unsigned char *dstmac;
-  mrm_remap_t remap;
 
   if (skb == NULL) {
     printk(KERN_WARNING "MRM NULL SKB\n");
@@ -33,21 +32,7 @@ mrm_bridge_outbound_hook(
     return NF_ACCEPT;
   }
 
-  remap = mrm_is_targeted_mac_address(dstmac);
-  if (remap == NULL) {
-    /* our filter is not targeting this MAC address... pass this traffic through */
-    return NF_ACCEPT;
-  }
-
-  /* the filter rules engine only cares about IPv4 or IPv6 traffic */
-  switch (skb->protocol) {
-  case ETH_P_IP:
-    mrm_perform_ipv4_remap(remap, dstmac, skb->len, ip_hdr(skb));
-    break;
-  case ETH_P_IPV6:
-    mrm_perform_ipv6_remap(remap, dstmac, skb->len, ipv6_hdr(skb));
-    break;
-  }
+  mrm_perform_ethernet_remap(dstmac, skb); /* XXX return value ? */
 
   /* always return NF_ACCEPT as we dont intend to filter out any traffic */
   return NF_ACCEPT;
@@ -73,8 +58,8 @@ modinit( void ) {
 static void __exit
 modexit( void ) {
   mrm_destroy_remapctl();
-  mrm_destroy_remapper_config();
   nf_unregister_hook(&_hops);
+  mrm_destroy_remapper_config();
   printk(KERN_INFO "MRM The MAC Address Re-Mapper gone bye-bye\n");
 }
 
