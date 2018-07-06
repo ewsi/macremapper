@@ -8,9 +8,9 @@
 int mrm_perform_ethernet_remap( unsigned char * const /* dst */, struct sk_buff * const /* skb */);
 
 unsigned mrm_get_filter_count( void );
-int mrm_get_filter( struct mrm_filter_config * const /* output */, unsigned /* id */ );
+int mrm_get_filter( struct mrm_filter_config * const /* output */ );
 int mrm_set_filter( const struct mrm_filter_config * const /* filt */ );
-int mrm_delete_filter( unsigned /* id */ );
+int mrm_delete_filter( const struct mrm_filter_config * const /* filt */ );
 
 unsigned mrm_get_remap_count( void );
 int mrm_get_remap_entry( struct mrm_remap_entry * const /* e */);

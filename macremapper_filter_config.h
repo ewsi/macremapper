@@ -1,6 +1,14 @@
 #ifndef MACREMAPPER_FILTER_CONFIG_H_INCLUDED
 #define MACREMAPPER_FILTER_CONFIG_H_INCLUDED
 
+#ifdef __KERNEL__
+  #include <linux/in.h>
+  #include <linux/in6.h>
+  #include <linux/types.h>
+#else
+  #include <arpa/inet.h>
+#endif
+
 /*
 
   This file defines all the data structures shared between 
@@ -22,21 +30,20 @@ struct mrm_ipaddr_filter {
     MRMIPFILT_MATCHRANGE,
   } match_type;
 
+  /* XXX should use system address types for this! */
   union {
-    unsigned char ipaddr4[4];
-    unsigned char ipaddr4_start[4];
-    unsigned char ipaddr6[16];
-    unsigned char ipaddr6_start[16];
+    struct in_addr ipaddr4;
+    struct in_addr ipaddr4_start;
+    struct in6_addr ipaddr6;
+    struct in6_addr ipaddr6_start;
   };
 
   union {
-    unsigned char ipaddr4_mask[4];
-    unsigned char ipaddr4_end[4];
-    unsigned char ipaddr6_mask[16];
-    unsigned char ipaddr6_end[16];
+    struct in_addr ipaddr4_mask;
+    struct in_addr ipaddr4_end;
+    struct in6_addr ipaddr6_mask;
+    struct in6_addr ipaddr6_end;
   };
-
-  /* XXX need end range!!! */
 };
 
 struct mrm_ipproto_filter {
@@ -57,16 +64,28 @@ struct mrm_port_filter {
   } match_type;
 
   union {
-    unsigned short portno;
-    unsigned short low_portno;
+    uint16_t portno;
+    uint16_t low_portno;
   };
-  unsigned short high_portno;
+  uint16_t high_portno;
 };
 
 struct mrm_filter_rule {
   unsigned payload_size; /* >= this to trigger... 0 = match all */
 
-  int                        family; /* AF_INET || AF_INET6 */
+
+  /*
+    the family field...
+    Acceptable values: AF_INET, AF_INET6
+    This field is what dictates what type of address is in the "src_ipaddr" field
+    This field also dictates the family if "proto.match_type" has "MRMIPPFILT_MATCHFAMILY"
+    This field is ignored if both conditions are met:
+      . "proto.match_type" does NOT have "MRMIPPFILT_MATCHFAMILY"
+      . -- AND --
+      . "src_ipaddr.match_type" is "MRMIPFILT_MATCHANY"
+
+  */
+  int                        family;
   struct mrm_ipproto_filter  proto;
   struct mrm_ipaddr_filter   src_ipaddr;
   struct mrm_port_filter     src_port;
@@ -77,11 +96,6 @@ struct mrm_filter_config {
   char                    name[MRM_FILTER_NAME_MAX];
   unsigned                rules_active; /* count of active rules... cant be > MRM_FILTER_MAX_RULES */
   struct mrm_filter_rule  rules[MRM_FILTER_MAX_RULES];
-};
-
-struct mrm_io_filter {
-  unsigned                  id; /* only used as an input parameter for  MRM_GETFILTER */
-  struct mrm_filter_config  conf;
 };
 
 

@@ -64,9 +64,8 @@ mrm_handle_read(struct file *f, char __user *buf, size_t size, loff_t *off) {
 static long
 mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
   union {
-    struct mrm_io_filter      io_filt;
+    struct mrm_filter_config  filt_conf;
     struct mrm_remap_entry    remap_entry;
-    unsigned                  id;
     unsigned                  count;
   } u;
   int rv;
@@ -78,19 +77,19 @@ mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
     if (copy_to_user(param, &u.count, _IOC_SIZE(type)) != 0) return -EFAULT;
     return 0; /* success */
   case MRM_GETFILTER:
-    if (copy_from_user(&u.io_filt, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    rv = mrm_get_filter(&u.io_filt.conf, u.io_filt.id);
+    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) return -EFAULT;
+    rv = mrm_get_filter(&u.filt_conf);
     if (rv == 0) {
       /* only copy back to user on success */
-      if (copy_to_user(param, &u.io_filt, _IOC_SIZE(type)) != 0) return -EFAULT;
+      if (copy_to_user(param, &u.filt_conf, _IOC_SIZE(type)) != 0) return -EFAULT;
     }
     return rv;
   case MRM_SETFILTER:
-    if (copy_from_user(&u.io_filt, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return mrm_set_filter(&u.io_filt.conf);
+    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) return -EFAULT;
+    return mrm_set_filter(&u.filt_conf);
   case MRM_DELETEFILTER:
-    if (copy_from_user(&u.id, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return mrm_delete_filter(u.id);
+    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) return -EFAULT;
+    return mrm_delete_filter(&u.filt_conf);
 
   /* ioctl()s for working with MAC address remappings... */
   case MRM_GETREMAPCOUNT:
@@ -111,6 +110,11 @@ mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
   case MRM_DELETEREMAP:
     if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) return -EFAULT;
     return mrm_delete_remap(u.remap_entry.match_macaddr);
+
+  /* ioctl() for completely blowing away the running configuration */
+  case MRM_WIPERUNCONF:
+    mrm_destroy_remapper_config();
+    return 0; /* success */
 
   default:
     return -ENOTTY; /* Inappropriate I/O control operation (POSIX.1) */

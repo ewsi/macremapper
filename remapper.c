@@ -110,22 +110,22 @@ mrm_perform_ipv4_remap(
     case MRMIPFILT_MATCHANY:
       break;
     case MRMIPFILT_MATCHSINGLE:
-      if ((*((__be32*)rule->src_ipaddr.ipaddr4)) != iph->saddr) {
+      if (rule->src_ipaddr.ipaddr4.s_addr != iph->saddr) {
         continue;
       }
       break;
     case MRMIPFILT_MATCHSUBNET:
       src_subnet  = iph->saddr;
-      src_subnet &= (*((__be32*)rule->src_ipaddr.ipaddr4_mask));
-      if ((*((__be32*)rule->src_ipaddr.ipaddr4)) != src_subnet) {
+      src_subnet &= rule->src_ipaddr.ipaddr4_mask.s_addr;
+      if (rule->src_ipaddr.ipaddr4.s_addr != src_subnet) {
         continue;
       }
       break;
     case MRMIPFILT_MATCHRANGE:
-      if (ntohl(iph->saddr) < ntohl(*((__be32*)rule->src_ipaddr.ipaddr4_start))) {
+      if (ntohl(iph->saddr) < ntohl(rule->src_ipaddr.ipaddr4_start.s_addr)) {
         continue;
       }
-      if (ntohl(iph->saddr) > ntohl(*((__be32*)rule->src_ipaddr.ipaddr4_end))) {
+      if (ntohl(iph->saddr) > ntohl(rule->src_ipaddr.ipaddr4_end.s_addr)) {
         continue;
       }
     }
@@ -221,11 +221,11 @@ mrm_get_filter_count( void ) {
 }
 
 int
-mrm_get_filter( struct mrm_filter_config * const output, unsigned id ) {
+mrm_get_filter( struct mrm_filter_config * const output ) {
   struct mrm_filter_node   *f;
 
-  for (f = _filters; f != NULL; f = f->next, id--) {
-    if (id != 0) continue;
+  for (f = _filters; f != NULL; f = f->next) {
+    if (strncmp(f->conf.name, output->name, sizeof(output->name)) != 0) continue;
     memcpy(output, &f->conf, sizeof(f->conf));
     return 0; /* success */
   }
@@ -269,11 +269,11 @@ mrm_set_filter( const struct mrm_filter_config * const filt ) {
 }
 
 int
-mrm_delete_filter( unsigned id ) {
+mrm_delete_filter( const struct mrm_filter_config * const filt ) {
   struct mrm_filter_node   *f, *fprev;
 
-  for (f = _filters, fprev = NULL; f != NULL; fprev = f, f = f->next, id--) {
-    if (id != 0) continue;
+  for (f = _filters, fprev = NULL; f != NULL; fprev = f, f = f->next) {
+    if (strncmp(f->conf.name, filt->name, sizeof(filt->name)) != 0) continue;
     if (f->refcnt > 0) {
       return -EADDRINUSE; /* cant delete... in use */
     }
@@ -408,7 +408,7 @@ void mrm_destroy_remapper_config( void ) {
   }
 
   while (mrm_get_filter_count() > 0) {
-    mrm_delete_filter(0);
+    mrm_delete_filter(&_filters->conf);
   }
 }
 
@@ -502,9 +502,10 @@ dump_single_ruleset(struct bufprintf_buf * const tb, const char * const text, co
     bufprintf(tb, "payload_size=%u", rule->payload_size);
     bufprintf(tb, " family=");
     switch(rule->family) {
-    case AF_INET:  bufprintf(tb, "AF_INET"); break;
-    case AF_INET6: bufprintf(tb, "AF_INET6"); break;
-    default:       bufprintf(tb, "Unknown(%d)", rule->family); break;
+    case AF_UNSPEC: bufprintf(tb, "AF_UNSPEC"); break;
+    case AF_INET:   bufprintf(tb, "AF_INET"); break;
+    case AF_INET6:  bufprintf(tb, "AF_INET6"); break;
+    default:        bufprintf(tb, "Unknown(%d)", rule->family); break;
     }
 
     bufprintf(tb, " proto=");
@@ -528,17 +529,17 @@ dump_single_ruleset(struct bufprintf_buf * const tb, const char * const text, co
     switch(rule->src_ipaddr.match_type) {
     case MRMIPFILT_MATCHANY: bufprintf(tb, "any"); break;
     case MRMIPFILT_MATCHSINGLE: 
-      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? rule->src_ipaddr.ipaddr4 : rule->src_ipaddr.ipaddr6);
+      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? (const void*)&rule->src_ipaddr.ipaddr4       : (const void*)&rule->src_ipaddr.ipaddr6);
       break;
     case MRMIPFILT_MATCHSUBNET: 
-      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? rule->src_ipaddr.ipaddr4 : rule->src_ipaddr.ipaddr6);
+      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? (const void*)&rule->src_ipaddr.ipaddr4       : (const void*)&rule->src_ipaddr.ipaddr6);
       bufprintf(tb, "/");
-      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? rule->src_ipaddr.ipaddr4_mask : rule->src_ipaddr.ipaddr6_mask);
+      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? (const void*)&rule->src_ipaddr.ipaddr4_mask  : (const void*)&rule->src_ipaddr.ipaddr6_mask);
       break;
     case MRMIPFILT_MATCHRANGE: 
-      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? rule->src_ipaddr.ipaddr4_start : rule->src_ipaddr.ipaddr6_start);
+      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? (const void*)&rule->src_ipaddr.ipaddr4_start : (const void*)&rule->src_ipaddr.ipaddr6_start);
       bufprintf(tb, "-");
-      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? rule->src_ipaddr.ipaddr4_end : rule->src_ipaddr.ipaddr6_end);
+      dump_single_ip(tb, rule->family, (rule->family == AF_INET) ? (const void*)&rule->src_ipaddr.ipaddr4_end   : (const void*)&rule->src_ipaddr.ipaddr6_end);
       break;
     }
 
