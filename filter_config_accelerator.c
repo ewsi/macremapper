@@ -64,7 +64,11 @@ mrm_generate_acceleration_tables(
       }
       /* traffic the is neither tcp nor udp */
       if ((rule->proto.match_type & (~MRMIPPFILT_MATCHFAMILY)) == MRMIPPFILT_MATCHANY) {
-        push_rule(r_ip4oth, rule);
+        /* only insert if both src and dst port are match any
+           because the "other" traffic type probably dont use ports */
+        if ((rule->src_port.match_type == MRMPORTFILT_MATCHANY) && (rule->dst_port.match_type == MRMPORTFILT_MATCHANY)) {
+          push_rule(r_ip4oth, rule);
+        }
       }
     }
 
@@ -86,7 +90,11 @@ mrm_generate_acceleration_tables(
       }
       /* traffic the is neither tcp nor udp */
       if ((rule->proto.match_type & (~MRMIPPFILT_MATCHFAMILY)) == MRMIPPFILT_MATCHANY) {
-        push_rule(r_ip6oth, rule);
+        /* only insert if both src and dst port are match any
+           because the "other" traffic type probably dont use ports */
+        if ((rule->src_port.match_type == MRMPORTFILT_MATCHANY) && (rule->dst_port.match_type == MRMPORTFILT_MATCHANY)) {
+          push_rule(r_ip6oth, rule);
+        }
       }
     }
   }
