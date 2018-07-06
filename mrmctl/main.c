@@ -84,7 +84,7 @@ rmfilter(const char * const filter_name) {
 
   fd = open_driver();
   if (ioctl(fd, MRM_DELETEFILTER, &filterconf) == -1) {
-    perror("ioctl(MRM_SETFILTER) failed");
+    perror("ioctl(MRM_DELETEFILTER) failed");
     return 1;
   }
   close(fd);
