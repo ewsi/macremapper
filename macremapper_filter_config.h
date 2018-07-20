@@ -5,8 +5,10 @@
   #include <linux/in.h>
   #include <linux/in6.h>
   #include <linux/types.h>
+  #include <linux/if.h>
 #else
   #include <arpa/inet.h>
+  #include <linux/if.h>
 #endif
 
 /*
@@ -103,7 +105,7 @@ struct mrm_filter_config {
 struct mrm_remap_entry {
   unsigned char   match_macaddr[6];
   unsigned char   replace_macaddr[6];
-  /* char            replace_ifname[...]; */
+  char            replace_ifname[IFNAMSIZ];
   char            filter_name[MRM_FILTER_NAME_MAX];
 };
 

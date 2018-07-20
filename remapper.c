@@ -20,7 +20,7 @@ struct mrm_filter_node {
 
 struct mrm_remap_rule {
   struct mrm_filter_node   *filter;
-  /* XXX link to interface remap !!! */
+  struct net_device        *replace_dev;
   unsigned char             match_macaddr[6];
   unsigned char             replace_macaddr[6];
 };
@@ -196,18 +196,26 @@ mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb
   case ETH_P_IP:
     if (mrm_perform_ipv4_remap(remaprule, dst, transmission_length, skb)) {
       memcpy(dst, remaprule->replace_macaddr, 6);
+      if (remaprule->replace_dev != NULL) {
+        skb->dev = remaprule->replace_dev;
+      }
+      return 1; /* remap applied */
     }
     break;
   case ETH_P_IPV6:
     if (mrm_perform_ipv6_remap(remaprule, dst, transmission_length, skb)) {
       memcpy(dst, remaprule->replace_macaddr, 6);
+      if (remaprule->replace_dev != NULL) {
+        skb->dev = remaprule->replace_dev;
+      }
+      return 1; /* remap applied */
     }
     break;
   default:
     break; /* not ip4 || ip6... traffic not targeted for us */
   }
 
-  return 0;
+  return 0; /* remap not applied */
 }
 
 unsigned
@@ -315,6 +323,8 @@ int
 mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
   struct mrm_remap_rule *r;
   struct mrm_filter_node *f;
+  struct net_device *dev;
+  struct net_device *freedev;
   unsigned i;
 
   /* XXX RACY!!! */
@@ -333,6 +343,26 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
     return -EINVAL;
   }
 
+  /* resolve the given interface name... */
+  dev = NULL;
+  if (remap->replace_ifname[0] != '\0') {
+    if (strnlen(remap->replace_ifname, sizeof(remap->replace_ifname)) == sizeof(remap->replace_ifname)) {
+      return -EINVAL; /* sanity check to ensure the string is "\0" terminated */
+    }
+    /* XXX WARNING: using "&init_net" here makes it use the 
+                    "main system" network namespace...
+                    if this is invoked by an ioctl() from
+                    a process within a container, this
+                    may be a surity issue... TBD...
+    */
+    dev = dev_get_by_name(&init_net, remap->replace_ifname);
+    if (dev == NULL) {
+      return -EINVAL; /* failed to lookup device by name */
+    }
+  }
+
+  /* IMPORTANT: as of here, the reference count has been increased on dev */
+
   /* check to see if we have an existing remap entry */
   for (r=NULL, i = 0; i < _remap_count; i++) {
     if (memcmp(_remaps[i].match_macaddr, remap->match_macaddr, sizeof(_remaps[i].match_macaddr)) == 0) {
@@ -347,6 +377,7 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
        create one... */
     if (_remap_count == MRM_MAX_REMAPS) {
       /* were full... cant insert any more remaps */
+      if (dev != NULL) dev_put(dev);
       return -ENOMEM;
     }
 
@@ -354,6 +385,7 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
     memcpy(r->match_macaddr, remap->match_macaddr, sizeof(r->match_macaddr));
     memcpy(r->replace_macaddr, remap->replace_macaddr, sizeof(r->replace_macaddr));
     r->filter = f;
+    r->replace_dev = NULL;
     f->refcnt++;
     ++_remap_count;
   }
@@ -368,6 +400,18 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
 
   /* copy over the new replace value (if any) */
   memcpy(r->replace_macaddr, remap->replace_macaddr, sizeof(r->replace_macaddr));
+
+  /* apply the interface device replace setting */
+  if (dev == r->replace_dev) {
+    /* replace device is already correct... no need to change */
+    if (dev != NULL) dev_put(dev);
+  }
+  else {
+    /* need to replace the device */
+    freedev = r->replace_dev;
+    r->replace_dev = dev;
+    if (freedev) dev_put(freedev);
+  }
 
   /* thats all folks */
   return 0; /* success */
@@ -386,6 +430,12 @@ mrm_delete_remap( const unsigned char * const macaddr ) {
 
     /* remote the filter reference counter */
     r->filter->refcnt--;
+
+    /* decrement the net device reference count */
+    if (r->replace_dev != NULL) {
+      dev_put(r->replace_dev);
+      r->replace_dev = NULL;
+    }
 
     /* XXX racy!!! */
     /* compute how many entries are in the array afterwards, 
