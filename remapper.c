@@ -643,8 +643,16 @@ mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
     dump_single_mac_address(tb, r->match_macaddr);
     bufprintf(tb, "    Replace MAC Address: ");
     dump_single_mac_address(tb, r->replace_macaddr);
+    bufprintf(tb, "    Replace Interface: ");
+    if (r->replace_dev == NULL) {
+      bufprintf(tb, "(None)\n");
+    }
+    else {
+      bufprintf(tb, "%.*s\n", sizeof(r->replace_dev->name), r->replace_dev->name);
+    }
 
     bufprintf(tb, "    Filter: %.*s\n", sizeof(r->filter->conf.name), r->filter->conf.name);
     bufprintf(tb, "\n");
   }
 }
+
