@@ -72,7 +72,7 @@ mrm_perform_ipv4_remap(
   validate_port = 0;
   iph = ip_hdr(skb);
 
-  switch (iph->protocol) {
+  switch (ntohs(iph->protocol)) {
   case IPPROTO_TCP:
     validate_port = 1;
     ruleref = &target_rules->tcp_targeted_rules;
@@ -192,7 +192,7 @@ mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb
   transmission_length = skb->len;
 
   /* determine what kind of traffic this is... */
-  switch (skb->protocol) {
+  switch (htons(skb->protocol)) {
   case ETH_P_IP:
     if (mrm_perform_ipv4_remap(remaprule, dst, transmission_length, skb)) {
       memcpy(dst, remaprule->replace_macaddr, 6);
