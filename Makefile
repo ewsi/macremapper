@@ -8,7 +8,7 @@
 ## $ sudo apt-get install linux-headers-`uname -r`
 ##
 ## Uncomment the following:
-#LINUX_ROOT := /usr/src/linux-headers-`uname -r`
+#LINUX_ROOT ?= /usr/src/linux-headers-`uname -r`
 
 
 
@@ -16,18 +16,18 @@
 ## To cross-compile for the RDK XB3 ARM core
 ##
 ## Uncomment the following:
-RDK_BUILD  := /home/jdennis/build/arrisxb3/build-xb3
-LINUX_ROOT := $(RDK_BUILD)/tmp/sysroots/arrisxb3arm/usr/src/kernel
-export ARCH := arm
-export CROSS_COMPILE := $(RDK_BUILD)/tmp/sysroots/x86_64-linux/usr/bin/arm1176jzstb-rdk-linux-uclibceabi/armeb-rdk-linux-uclibceabi-
+RDK_BUILD            ?= /home/jdennis/build/arrisxb3/build-xb3
+LINUX_ROOT           ?= $(RDK_BUILD)/tmp/sysroots/arrisxb3arm/usr/src/kernel
+export CROSS_COMPILE ?= $(RDK_BUILD)/tmp/sysroots/x86_64-linux/usr/bin/arm1176jzstb-rdk-linux-uclibceabi/armeb-rdk-linux-uclibceabi-
+export ARCH          ?= arm
 
 ##
 ## To cross-compile for the RDK XB3 ATOM core
 ##
 ## Uncomment the following:
-#RDK_BUILD  := /home/jdennis/build/arrisxb3/build-xb3
-#LINUX_ROOT := $(RDK_BUILD)/tmp/sysroots/arrisxb3atom/usr/src/kernel
-#export CROSS_COMPILE := $(RDK_BUILD)/tmp/sysroots/x86_64-linux/usr/bin/core2-32-rdk-linux/i586-rdk-linux-
+#RDK_BUILD            ?= /home/jdennis/build/arrisxb3/build-xb3
+#LINUX_ROOT           ?= $(RDK_BUILD)/tmp/sysroots/arrisxb3atom/usr/src/kernel
+#export CROSS_COMPILE ?= $(RDK_BUILD)/tmp/sysroots/x86_64-linux/usr/bin/core2-32-rdk-linux/i586-rdk-linux-
 
 
 ifeq ($(LINUX_ROOT),)
