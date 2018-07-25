@@ -1,6 +1,7 @@
 MODULE_NAME := macremapper
 #LINUX_ROOT := /home/jdennis/build/arrisxb3/build-xb3/tmp/sysroots/arrisxb3atom/usr/src/kernel
 LINUX_ROOT := /home/jdennis/build/arrisxb3/build-xb3/tmp/sysroots/arrisxb3arm/usr/src/kernel
+#LINUX_ROOT := /usr/src/linux-headers-`uname -r`
 
 export ARCH := arm
 export CROSS_COMPILE := /home/jdennis/build/arrisxb3/build-xb3/tmp/sysroots/x86_64-linux/usr/bin/arm1176jzstb-rdk-linux-uclibceabi/armeb-rdk-linux-uclibceabi-

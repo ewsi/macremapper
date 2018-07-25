@@ -622,7 +622,7 @@ mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
       all_rrs.rules[i] = &f->conf.rules[i];
     }
 
-    bufprintf(tb, "    Name: %.*s\n", sizeof(f->conf.name), f->conf.name);
+    bufprintf(tb, "    Name: %.*s\n", (int)sizeof(f->conf.name), f->conf.name);
     bufprintf(tb, "    Remap Reference Count: %u\n", f->refcnt);
     bufprintf(tb, "    Total Rule Count: %u\n", f->conf.rules_active);
     dump_single_ruleset(tb, "All Configured", &all_rrs);
@@ -648,10 +648,10 @@ mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
       bufprintf(tb, "(None)\n");
     }
     else {
-      bufprintf(tb, "%.*s\n", sizeof(r->replace_dev->name), r->replace_dev->name);
+      bufprintf(tb, "%.*s\n", (int)sizeof(r->replace_dev->name), r->replace_dev->name);
     }
 
-    bufprintf(tb, "    Filter: %.*s\n", sizeof(r->filter->conf.name), r->filter->conf.name);
+    bufprintf(tb, "    Filter: %.*s\n", (int)sizeof(r->filter->conf.name), r->filter->conf.name);
     bufprintf(tb, "\n");
   }
 }
