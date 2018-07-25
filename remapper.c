@@ -89,6 +89,8 @@ mrm_perform_ipv4_remap(
     break;
   default:
     ruleref = &target_rules->other_targeted_rules;
+    src_port = 0;
+    dst_port = 0;
     break;
   }
 
