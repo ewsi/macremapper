@@ -5,8 +5,8 @@
 
 #include <linux/netfilter_bridge.h>
 
-#include "./remapper.h"
-#include "./remapctl.h"
+#include "./mrm_runconf.h"
+#include "./mrm_ctlfile.h"
 
 
 
@@ -63,14 +63,14 @@ static int __init
 modinit( void ) {
   printk(KERN_INFO "MRM The MAC Address Re-Mapper is in the kernel\n");
   nf_register_hook(&_hops);
-  mrm_init_remapctl(); /* XXX not checking for failure! */
+  mrm_init_ctlfile(); /* XXX not checking for failure! */
 
   return 0; /* all is good */
 }
 
 static void __exit
 modexit( void ) {
-  mrm_destroy_remapctl();
+  mrm_destroy_ctlfile();
   nf_unregister_hook(&_hops);
   mrm_destroy_remapper_config();
   printk(KERN_INFO "MRM The MAC Address Re-Mapper gone bye-bye\n");

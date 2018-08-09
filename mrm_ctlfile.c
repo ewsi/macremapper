@@ -1,7 +1,7 @@
 
 
-#include "./remapctl.h"
-#include "./remapper.h"
+#include "./mrm_ctlfile.h"
+#include "./mrm_runconf.h"
 #include "./macremapper_ioctl.h"
 #include "./bufprintf.h"
 
@@ -131,7 +131,7 @@ static const struct file_operations _fops = {
   unlocked_ioctl:  (void*)&mrm_handle_ioctl,
 };
 
-int mrm_init_remapctl( void ) {
+int mrm_init_ctlfile( void ) {
   /**/
   struct proc_dir_entry *pde;
 
@@ -143,7 +143,7 @@ int mrm_init_remapctl( void ) {
   return 1; /* success */
 }
 
-void mrm_destroy_remapctl( void ) {
+void mrm_destroy_ctlfile( void ) {
   remove_proc_entry(PROC_FILENAME, NULL);
 }
 

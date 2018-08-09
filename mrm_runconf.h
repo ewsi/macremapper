@@ -1,5 +1,5 @@
-#ifndef REMAPPER_H_INCLUDED
-#define REMAPPER_H_INCLUDED
+#ifndef MRM_RUNCONF_H_INCLUDED
+#define MRM_RUNCONF_H_INCLUDED
 
 #include "./macremapper_filter_config.h"
 
@@ -23,4 +23,4 @@ void mrm_destroy_remapper_config( void );
 struct bufprintf_buf;
 void mrm_bufprintf_running_configuration(struct bufprintf_buf * const /* tb */);
 
-#endif /* #ifndef REMAPPER_H_INCLUDED */
+#endif /* #ifndef MRM_RUNCONF_H_INCLUDED */

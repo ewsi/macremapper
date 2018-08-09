@@ -1,5 +1,6 @@
-#include "./remapper.h"
+#include "./mrm_runconf.h"
 
+#include "./mrm_private.h"
 #include "./filter_config_accelerator.h"
 
 #include <linux/ip.h>
@@ -10,29 +11,15 @@
 
 #define MRM_MAX_REMAPS 100
 
-struct mrm_filter_node {
-  struct mrm_filter_node                *next;
-  struct mrm_filter_config               conf;
-  struct mrm_filter_config_accelerator   accelerator;
-  unsigned                               refcnt;
-};
 
 
-struct mrm_remap_rule {
-  struct mrm_filter_node   *filter;
-  struct net_device        *replace_dev;
-  unsigned char             match_macaddr[6];
-  unsigned char             replace_macaddr[6];
-};
-
-
-static struct mrm_filter_node  *_filters = NULL;
-static unsigned                 _remap_count = 0;
-static struct mrm_remap_rule    _remaps[MRM_MAX_REMAPS];
+static struct mrm_runconf_filter_node   *_filters = NULL;
+static unsigned                          _remap_count = 0;
+static struct mrm_runconf_remap_entry    _remaps[MRM_MAX_REMAPS];
 
 
 
-static inline struct mrm_remap_rule *
+static inline struct mrm_runconf_remap_entry *
 mrm_is_targeted_mac_address( const unsigned char * const macaddr ) {
   /* XXX this function needs some serious optimization! */
 
@@ -49,7 +36,7 @@ mrm_is_targeted_mac_address( const unsigned char * const macaddr ) {
 
 static inline int
 mrm_perform_ipv4_remap(
-  const struct mrm_remap_rule * const remaprule,
+  const struct mrm_runconf_remap_entry * const remaprule,
   unsigned char * const dst,
   const unsigned transmission_length,
   struct sk_buff * const skb
@@ -172,7 +159,7 @@ mrm_perform_ipv4_remap(
 
 static inline int
 mrm_perform_ipv6_remap(
-  const struct mrm_remap_rule * const remaprule,
+  const struct mrm_runconf_remap_entry * const remaprule,
   unsigned char * const dst,
   const unsigned transmission_length,
   struct sk_buff * const skb
@@ -182,7 +169,7 @@ mrm_perform_ipv6_remap(
 
 int
 mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb) {
-  struct mrm_remap_rule * remaprule;
+  struct mrm_runconf_remap_entry * remaprule;
   unsigned transmission_length;
 
   /* first and foremost, is the traffic targeted for us? */
@@ -222,8 +209,8 @@ mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb
 
 unsigned
 mrm_get_filter_count( void ) {
-  struct mrm_filter_node   *f;
-  unsigned                  result;
+  struct mrm_runconf_filter_node   *f;
+  unsigned                          result;
 
   for (result = 0, f = _filters; f != NULL; f = f->next, result++);
   
@@ -232,7 +219,7 @@ mrm_get_filter_count( void ) {
 
 int
 mrm_get_filter( struct mrm_filter_config * const output ) {
-  struct mrm_filter_node   *f;
+  struct mrm_runconf_filter_node   *f;
 
   for (f = _filters; f != NULL; f = f->next) {
     if (strncmp(f->conf.name, output->name, sizeof(output->name)) != 0) continue;
@@ -245,7 +232,7 @@ mrm_get_filter( struct mrm_filter_config * const output ) {
 
 int
 mrm_set_filter( const struct mrm_filter_config * const filt ) {
-  struct mrm_filter_node   *f;
+  struct mrm_runconf_filter_node   *f;
 
   for (f = _filters; f != NULL; f = f->next) {
     if (strncmp(f->conf.name, filt->name, sizeof(filt->name)) != 0) continue;
@@ -280,7 +267,7 @@ mrm_set_filter( const struct mrm_filter_config * const filt ) {
 
 int
 mrm_delete_filter( const struct mrm_filter_config * const filt ) {
-  struct mrm_filter_node   *f, *fprev;
+  struct mrm_runconf_filter_node   *f, *fprev;
 
   for (f = _filters, fprev = NULL; f != NULL; fprev = f, f = f->next) {
     if (strncmp(f->conf.name, filt->name, sizeof(filt->name)) != 0) continue;
@@ -307,7 +294,7 @@ mrm_get_remap_count( void ) {
 int
 mrm_get_remap_entry( struct mrm_remap_entry * const e) {
   unsigned i;
-  const struct mrm_remap_rule *r;
+  const struct mrm_runconf_remap_entry *r;
 
   for (i = 0; i < _remap_count; i++) {
     r = &_remaps[i];
@@ -323,8 +310,8 @@ mrm_get_remap_entry( struct mrm_remap_entry * const e) {
 
 int
 mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
-  struct mrm_remap_rule *r;
-  struct mrm_filter_node *f;
+  struct mrm_runconf_remap_entry *r;
+  struct mrm_runconf_filter_node *f;
   struct net_device *dev;
   struct net_device *freedev;
   unsigned i;
@@ -421,7 +408,7 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
 
 int
 mrm_delete_remap( const unsigned char * const macaddr ) {
-  struct mrm_remap_rule *r;
+  struct mrm_runconf_remap_entry *r;
   unsigned i;
   unsigned after_entries;
 
@@ -609,9 +596,9 @@ void
 mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
   unsigned count;
   unsigned i;
-  const struct mrm_filter_node  *f;
-  const struct mrm_remap_rule   *r;
-  struct mrm_filter_rulerefset   all_rrs;
+  const struct mrm_runconf_filter_node  *f;
+  const struct mrm_runconf_remap_entry  *r;
+  struct mrm_filter_rulerefset           all_rrs;
 
   bufprintf(tb, "MAC Address Re-Mapper Running Configuration:\n");
 
