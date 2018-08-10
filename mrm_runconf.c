@@ -1,6 +1,7 @@
 #include "./mrm_runconf.h"
 
 #include "./mrm_private.h"
+#include "./mrm_rcdb.h"
 #include "./filter_config_accelerator.h"
 
 #include <linux/ip.h>
@@ -9,30 +10,7 @@
 #include <linux/tcp.h>
 
 
-#define MRM_MAX_REMAPS 100
 
-
-
-static struct mrm_runconf_filter_node   *_filters = NULL;
-static unsigned                          _remap_count = 0;
-static struct mrm_runconf_remap_entry    _remaps[MRM_MAX_REMAPS];
-
-
-
-static inline struct mrm_runconf_remap_entry *
-mrm_is_targeted_mac_address( const unsigned char * const macaddr ) {
-  /* XXX this function needs some serious optimization! */
-
-  unsigned i;
-
-  for (i = 0; i < _remap_count; i++) {
-     if (memcmp(_remaps[i].match_macaddr, macaddr, 6) != 0) continue;
-
-     return &_remaps[i];
-  }
-
-  return NULL; /* no we aint filtering on this MAC address */
-}
 
 static inline int
 mrm_perform_ipv4_remap(
@@ -173,9 +151,14 @@ mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb
   unsigned transmission_length;
 
   /* first and foremost, is the traffic targeted for us? */
-  remaprule = mrm_is_targeted_mac_address(dst);
+  remaprule = mrm_rcdb_lookup_remap_entry_by_macaddr(dst);
   if (remaprule == NULL) {
     return 0; /* traffic not targeted for us */
+  }
+
+  if (remaprule->filter == NULL) {
+    printk(KERN_WARNING "MRM No filter associated for matched remap\n");
+    return 0; /* dont have a filter for this rule... */
   }
 
   transmission_length = skb->len;
@@ -209,78 +192,39 @@ mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb
 
 unsigned
 mrm_get_filter_count( void ) {
-  struct mrm_runconf_filter_node   *f;
-  unsigned                          result;
-
-  for (result = 0, f = _filters; f != NULL; f = f->next, result++);
-  
-  return result;
+  return mrm_rcdb_get_filter_count(); /* XXX redundant */
 }
 
 int
 mrm_get_filter( struct mrm_filter_config * const output ) {
   struct mrm_runconf_filter_node   *f;
 
-  for (f = _filters; f != NULL; f = f->next) {
-    if (strncmp(f->conf.name, output->name, sizeof(output->name)) != 0) continue;
-    memcpy(output, &f->conf, sizeof(f->conf));
-    return 0; /* success */
-  }
+  f = mrm_rcdb_lookup_filter_by_name(output->name);
+  if (f == NULL) return -EINVAL;
+  memcpy(output, &f->conf, sizeof(f->conf));
 
-  return -EINVAL;
+  return 0; /* success */
 }
 
 int
 mrm_set_filter( const struct mrm_filter_config * const filt ) {
   struct mrm_runconf_filter_node   *f;
 
-  for (f = _filters; f != NULL; f = f->next) {
-    if (strncmp(f->conf.name, filt->name, sizeof(filt->name)) != 0) continue;
-
-    /* XXX racy!!! */
-    /* XXX racy!!! */
-    /* XXX racy!!! */
-    memcpy(&f->conf, filt, sizeof(*filt));
-    mrm_generate_acceleration_tables(&f->accelerator, &f->conf);
-    return 0; /* success */
-  }
-
-  /* not found and existing... need to create a new filter... */
-  if (_filters == NULL) {
-    _filters = f = kmalloc(sizeof(*f), GFP_KERNEL);
-  }
-  else {
-    for (f = _filters; f->next != NULL; f = f->next);
-    f->next = kmalloc(sizeof(*f), GFP_KERNEL);
-    f = f->next;
-  }
-  if (f == NULL) {
-    return -ENOMEM;
-  }
-  memset(f, 0, sizeof(*f));
+  f = mrm_rcdb_insert_filter(filt->name);
+  if (f == NULL) return -ENOMEM;
 
   memcpy(&f->conf, filt, sizeof(*filt));
   mrm_generate_acceleration_tables(&f->accelerator, &f->conf);
-
   return 0; /* success */
 }
 
 int
 mrm_delete_filter( const struct mrm_filter_config * const filt ) {
-  struct mrm_runconf_filter_node   *f, *fprev;
+  struct mrm_runconf_filter_node *f;
 
-  for (f = _filters, fprev = NULL; f != NULL; fprev = f, f = f->next) {
-    if (strncmp(f->conf.name, filt->name, sizeof(filt->name)) != 0) continue;
-    if (f->refcnt > 0) {
-      return -EADDRINUSE; /* cant delete... in use */
-    }
-    if (fprev) fprev->next = f->next;
-    if (f == _filters) _filters = f->next;
-    kfree(f);
-    return 0; /* success */
-  }
-
-  return -EINVAL; /* failure */
+  f = mrm_rcdb_lookup_filter_by_name(filt->name);
+  if (f == NULL) return -EINVAL; /* filter not found */
+  return mrm_rcdb_delete_filter(f);
 }
 
 
@@ -288,24 +232,19 @@ mrm_delete_filter( const struct mrm_filter_config * const filt ) {
 
 unsigned
 mrm_get_remap_count( void ) {
-  return _remap_count;
+  return mrm_rcdb_get_remap_count(); /* XXX redundant */
 }
 
 int
 mrm_get_remap_entry( struct mrm_remap_entry * const e) {
-  unsigned i;
   const struct mrm_runconf_remap_entry *r;
 
-  for (i = 0; i < _remap_count; i++) {
-    r = &_remaps[i];
-    if (memcmp(r->match_macaddr, e->match_macaddr, sizeof(r->match_macaddr)) != 0) continue;
+  r = mrm_rcdb_lookup_remap_entry_by_macaddr(e->match_macaddr);
+  if (r == NULL) return -EINVAL; /* remap entry not found */
 
-    memcpy(e->replace_macaddr, r->replace_macaddr, sizeof(r->replace_macaddr));
-    strncpy(e->filter_name, r->filter->conf.name, sizeof(e->filter_name));
-    return 0; /* success */
-  }
-
-  return -EINVAL; /* entry not found */
+  memcpy(e->replace_macaddr, r->replace_macaddr, sizeof(r->replace_macaddr));
+  strncpy(e->filter_name, r->filter->conf.name, sizeof(e->filter_name));
+  return 0; /* success */
 }
 
 int
@@ -314,18 +253,9 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
   struct mrm_runconf_filter_node *f;
   struct net_device *dev;
   struct net_device *freedev;
-  unsigned i;
-
-  /* XXX RACY!!! */
-  /* XXX RACY!!! */
-  /* XXX RACY!!! */
-  /* XXX RACY!!! */
-  /* XXX RACY!!! */
 
   /* first find the specified filter by name... */
-  for (f = _filters; f != NULL; f = f->next) {
-    if (strncmp(f->conf.name, remap->filter_name, sizeof(remap->filter_name)) == 0) break;;
-  }
+  f = mrm_rcdb_lookup_filter_by_name(remap->filter_name);
   if (f == NULL) {
     /* given filter name does not exist! */
     printk(KERN_WARNING "MRM Invalid Filter Name!\n");
@@ -342,52 +272,28 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
                     "main system" network namespace...
                     if this is invoked by an ioctl() from
                     a process within a container, this
-                    may be a surity issue... TBD...
+                    may be a security issue... TBD...
     */
     dev = dev_get_by_name(&init_net, remap->replace_ifname);
     if (dev == NULL) {
+      if (dev != NULL) dev_put(dev);
       return -EINVAL; /* failed to lookup device by name */
     }
   }
 
   /* IMPORTANT: as of here, the reference count has been increased on dev */
 
-  /* check to see if we have an existing remap entry */
-  for (r=NULL, i = 0; i < _remap_count; i++) {
-    if (memcmp(_remaps[i].match_macaddr, remap->match_macaddr, sizeof(_remaps[i].match_macaddr)) == 0) {
-      r = &_remaps[i];
-      break;
-    }
-  }
-
-  /* create a new remap entry if not found... */
+  /* lookup/insert remap entry... */
+  r = mrm_rcdb_insert_remap_entry(remap->match_macaddr);
   if (r == NULL) {
-    /* didnt find an existing remap entry with matching mac address...
-       create one... */
-    if (_remap_count == MRM_MAX_REMAPS) {
-      /* were full... cant insert any more remaps */
-      if (dev != NULL) dev_put(dev);
-      return -ENOMEM;
-    }
-
-    r = &_remaps[_remap_count];
-    memcpy(r->match_macaddr, remap->match_macaddr, sizeof(r->match_macaddr));
-    memcpy(r->replace_macaddr, remap->replace_macaddr, sizeof(r->replace_macaddr));
-    r->filter = f;
-    r->replace_dev = NULL;
-    f->refcnt++;
-    ++_remap_count;
+    /* were full... cant insert any more remaps */
+    if (dev != NULL) dev_put(dev);
+    return -ENOMEM;
   }
 
   /* ok so now both the remap and filter variable are pointing to the correct place... */
-  if (f != r->filter) {
-    /* filter changed... update both reference counters and swap */
-    f->refcnt++;
-    r->filter->refcnt--;
-    r->filter = f;
-  }
 
-  /* copy over the new replace value (if any) */
+  /* copy over the replace value */
   memcpy(r->replace_macaddr, remap->replace_macaddr, sizeof(r->replace_macaddr));
 
   /* apply the interface device replace setting */
@@ -402,6 +308,9 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
     if (freedev) dev_put(freedev);
   }
 
+  /* apply the filter... */
+  mrm_rcdb_set_remap_entry_filter(r, f); /* note: this function correctly update the reference counters */
+
   /* thats all folks */
   return 0; /* success */
 }
@@ -409,46 +318,34 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
 int
 mrm_delete_remap( const unsigned char * const macaddr ) {
   struct mrm_runconf_remap_entry *r;
-  unsigned i;
-  unsigned after_entries;
+  struct net_device *netdev;
+  int rv;
 
-  /* find the remap entry */
-  for (r=NULL, i = 0; i < _remap_count; i++) {
-    r = &_remaps[i];
-    if (memcmp(r->match_macaddr, macaddr, sizeof(r->match_macaddr)) != 0) continue;
+  /* first lookup the remap entry */
+  r = mrm_rcdb_lookup_remap_entry_by_macaddr(macaddr);
+  if (r == NULL)
+    return -EINVAL; /* remap entry not found */
 
-    /* remote the filter reference counter */
-    r->filter->refcnt--;
+  /* preserve the net device so we can decrement its reference count after removing the remap */
+  netdev = r->replace_dev;
 
-    /* decrement the net device reference count */
-    if (r->replace_dev != NULL) {
-      dev_put(r->replace_dev);
-      r->replace_dev = NULL;
-    }
-
-    /* XXX racy!!! */
-    /* compute how many entries are in the array afterwards, 
-       then shift them down in the array by one element */
-    after_entries = _remap_count - i - 1;
-    memmove(r, r + 1, after_entries * sizeof(*r));
-
-    /* finally decrement the amount of entries in the array */
-    --_remap_count;
-    return 0; /* success */
+  /* attempt to remove the remap entry... */
+  rv = mrm_rcdb_delete_remap_entry(r);
+  if (rv != 0) {
+    /* something failed... entry was not removed... */
+    printk(KERN_ERR "MRM Failed to delete remap entry after lookup!\n");
+    return rv;
   }
 
-  return -EINVAL; /* entry not found */
+  /* decrement the net device reference count */
+  if (netdev != NULL) dev_put(netdev);
+
+  return 0; /* success */
 }
 
 
 void mrm_destroy_remapper_config( void ) {
-  while (mrm_get_remap_count() > 0) {
-    mrm_delete_remap(_remaps[0].match_macaddr);
-  }
-
-  while (mrm_get_filter_count() > 0) {
-    mrm_delete_filter(&_filters->conf);
-  }
+  mrm_rcdb_destroy(); /* XXX redundant */
 }
 
 
@@ -594,21 +491,23 @@ dump_single_ruleset(struct bufprintf_buf * const tb, const char * const text, co
 
 void
 mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
-  unsigned count;
-  unsigned i;
+  unsigned i,j;
+  unsigned filter_count;
+  unsigned remap_count;
   const struct mrm_runconf_filter_node  *f;
   const struct mrm_runconf_remap_entry  *r;
   struct mrm_filter_rulerefset           all_rrs;
 
   bufprintf(tb, "MAC Address Re-Mapper Running Configuration:\n");
 
-  count = mrm_get_filter_count();
-  bufprintf(tb, "  Filters: (Total Count %u)\n", count);
-  for (f = _filters; f != NULL; f = f->next) {
+  filter_count = mrm_get_filter_count();
+  bufprintf(tb, "  Filters: (Total Count %u)\n", filter_count);
+  for (i = 0; i < filter_count; i++) {
+    f = mrm_rcdb_lookup_filter_by_index(i);
 
     all_rrs.rules_active = f->conf.rules_active;
-    for (i = 0; i < all_rrs.rules_active; i++) {
-      all_rrs.rules[i] = &f->conf.rules[i];
+    for (j = 0; j < all_rrs.rules_active; j++) {
+      all_rrs.rules[j] = &f->conf.rules[j];
     }
 
     bufprintf(tb, "    Name: %.*s\n", (int)sizeof(f->conf.name), f->conf.name);
@@ -623,10 +522,10 @@ mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
     dump_single_ruleset(tb, "Other/IP6-Only", &f->accelerator.ip6_targeted_rules.other_targeted_rules);
     bufprintf(tb, "\n");
   }
-  count = mrm_get_remap_count();
-  bufprintf(tb, "  Remap Entries: (Total Count %u)\n", _remap_count);
-  for(i = 0; i < _remap_count; i++) {
-    r = &_remaps[i];
+  remap_count = mrm_get_remap_count();
+  bufprintf(tb, "  Remap Entries: (Total Count %u)\n", remap_count);
+  for(i = 0; i < remap_count; i++) {
+    r = mrm_rcdb_lookup_remap_entry_by_index(i);
 
     bufprintf(tb, "    Match MAC Address: ");
     dump_single_mac_address(tb, r->match_macaddr);
