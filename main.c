@@ -9,6 +9,10 @@
 #include "./mrm_rcdb.h"
 #include "./mrm_ctlfile.h"
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
+#error Linux Kernel Version 3.7+ is required!
+#endif
+
 
 
 /* this function get called per each frame about to go out of a bridge (brctl) */

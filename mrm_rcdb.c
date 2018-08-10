@@ -5,24 +5,25 @@
 #include <linux/etherdevice.h> /* ether_addr_equal() */
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/jhash.h>
+#include <linux/random.h>
 
 
 
-
-#define MRM_MAX_REMAPS 100
-
-static unsigned                          _remap_count = 0;
-static struct mrm_runconf_remap_entry    _remaps[MRM_MAX_REMAPS];
-//static struct hlist_head                 _remap_head;
-
-
-
+/* filter storage... */
 static struct kmem_cache                *_filter_cache __read_mostly;
-static struct kmem_cache                *_remap_cache  __read_mostly;
-
 static struct list_head                  _filter_list;
-
 #define filter_for_each(pos) list_for_each_entry(pos, &_filter_list, list)
+
+
+/* remap storage... */
+#define MRM_MAX_REMAPS 100
+#define REMAP_HASH_BITS 8
+#define REMAP_HASH_COUNT (1 << REMAP_HASH_BITS)
+static u32                               _remap_hash_salt;
+static struct hlist_head                 _remap_hash[REMAP_HASH_COUNT];
+static struct kmem_cache                *_remap_cache  __read_mostly;
+#define remap_for_each(pos, headidx) hlist_for_each_entry(pos, &_remap_hash[headidx], hlist)
 
 int
 mrm_rcdb_init( void ) {
@@ -36,6 +37,9 @@ mrm_rcdb_init( void ) {
   if (_remap_cache == NULL) goto failed;
 
   INIT_LIST_HEAD(&_filter_list);
+
+  memset(_remap_hash, 0, sizeof(_remap_hash)); /* XXX is there a better way to initialize? */
+  get_random_bytes(&_remap_hash_salt, sizeof(_remap_hash_salt));
 
   return 0; /* success */
 
@@ -60,8 +64,8 @@ mrm_rcdb_destroy( void ) {
 
 void
 mrm_rcdb_clear( void ) {
-  while (_remap_count > 0) {
-    mrm_rcdb_delete_remap_entry(_remaps);
+  while (mrm_rcdb_get_remap_count() > 0) {
+    mrm_rcdb_delete_remap_entry(mrm_rcdb_lookup_remap_entry_by_index(0));
   }
 
   while (mrm_rcdb_get_filter_count() > 0) {
@@ -146,18 +150,38 @@ mrm_rcdb_delete_filter( struct mrm_runconf_filter_node * const filter ) {
 
 /* remap entry functions... */
 
+static inline int
+mrm_rcsb_hash_macaddr(const unsigned char * const macaddr) {
+  /* hashing algorithm inspired by br_mac_hash() in br_fdb.c
+     key is last four bytes of macaddr
+  */
+  const u32 key = get_unaligned((const u32*)&macaddr[2]);
+  return jhash_1word(key, _remap_hash_salt) & (REMAP_HASH_COUNT - 1);
+}
+
 unsigned
 mrm_rcdb_get_remap_count( void ) {
-  return _remap_count;
+  struct mrm_runconf_remap_entry *r;
+  unsigned headidx;
+  unsigned result;
+
+  /* theres gotta be a better way of doing this */
+
+  result = 0;
+  for (headidx = 0; headidx < REMAP_HASH_COUNT; headidx++) {
+    remap_for_each(r, headidx) {
+      ++result;
+    }
+  }
+  return result;
 }
 
 struct mrm_runconf_remap_entry *
 mrm_rcdb_lookup_remap_entry_by_macaddr(const unsigned char * const macaddr) {
-  unsigned i;
   struct mrm_runconf_remap_entry *r;
+  const int headidx = mrm_rcsb_hash_macaddr(macaddr);
 
-  for (i = 0; i < _remap_count; i++) {
-    r = &_remaps[i];
+  remap_for_each(r, headidx) {
     if (ether_addr_equal(r->match_macaddr, macaddr))
       return r; /* success */
   }
@@ -165,9 +189,19 @@ mrm_rcdb_lookup_remap_entry_by_macaddr(const unsigned char * const macaddr) {
   return NULL; /* lookup failed */
 }
 
-struct mrm_runconf_remap_entry *mrm_rcdb_lookup_remap_entry_by_index(const unsigned index) {
-  if (index >= _remap_count) return NULL;
-  return &_remaps[index];
+struct mrm_runconf_remap_entry *mrm_rcdb_lookup_remap_entry_by_index(unsigned index) {
+  struct mrm_runconf_remap_entry *r;
+  unsigned headidx;
+
+  /* theres gotta be a better way of doing this */
+
+  for (headidx = 0; headidx < REMAP_HASH_COUNT; headidx++) {
+    remap_for_each(r, headidx) {
+      if (index-- == 0)
+        return r;
+    }
+  }
+  return NULL; /*lookup failed */
 }
 
 struct mrm_runconf_remap_entry *
@@ -178,38 +212,36 @@ mrm_rcdb_insert_remap_entry(const unsigned char * const macaddr) {
   rv = mrm_rcdb_lookup_remap_entry_by_macaddr(macaddr);
   if (rv != NULL) return rv;
 
-  if (_remap_count == MRM_MAX_REMAPS) {
+  if (mrm_rcdb_get_remap_count() == MRM_MAX_REMAPS) {
     return NULL; /* were full... cant insert any more remaps */
   }
 
-  rv = &_remaps[_remap_count];
+  /* allocate a new remap entry... */
+  rv = kmem_cache_alloc(_remap_cache, GFP_ATOMIC);
+  if (rv == NULL) {
+    return NULL; /* out of memory... */
+  }
+
+  /* initialize it... */
   memset(rv, 0, sizeof(*rv));
   memcpy(rv->match_macaddr, macaddr, sizeof(rv->match_macaddr));
-  ++_remap_count;
+
+  /* add it to the hash */
+  hlist_add_head(&rv->hlist, &_remap_hash[mrm_rcsb_hash_macaddr(rv->match_macaddr)]);
 
   return rv;
 }
 
 int
 mrm_rcdb_delete_remap_entry(struct mrm_runconf_remap_entry * const remap_entry) {
-  unsigned idx;
-  unsigned after_entries;
   struct mrm_runconf_filter_node *filter;
-
-  /* first find the index of the given remap entry pointer in the list */
-  if (remap_entry < _remaps) return -EINVAL;
-  idx = remap_entry - _remaps;
-  if (idx >= _remap_count) return -EINVAL;
 
   /* preserve the filter pointer... */
   filter = remap_entry->filter;
 
-  /* XXX possibly the worst way to update a list... */
-  after_entries = _remap_count - idx - 1;
-  memmove(remap_entry, remap_entry + 1, after_entries * sizeof(*remap_entry));
-
-  /* finally decrement the amount of entries in the array */
-  --_remap_count;
+  /* remove it from the hash list and free it... */
+  hlist_del(&remap_entry->hlist);
+  kmem_cache_free(_remap_cache, remap_entry);
 
   /* decrement the filter reference count if applicable */
   if (filter) filter->refcnt--;
