@@ -7,9 +7,17 @@
 
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <linux/mutex.h>
 
 
 #define PROC_FILENAME "macremapctl"
+
+
+/* declare a mutex to enforce one transcation at a time
+   in the event multiple processes/tasks are using this
+   file concurrently...
+*/
+static struct mutex _ctrl_mutex;
 
 
 /* gets called when a userland process does a open("/proc/macremapctl",...) */
@@ -44,7 +52,9 @@ mrm_handle_read(struct file *f, char __user *buf, size_t size, loff_t *off) {
       return -ENOMEM;
     }
     bufprintf_init(tb);
+    mutex_lock(&_ctrl_mutex);
     mrm_bufprintf_running_configuration(tb);
+    mutex_unlock(&_ctrl_mutex);
   }
   tb = f->private_data;
 
@@ -70,56 +80,73 @@ mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
   } u;
   int rv;
 
+  mutex_lock(&_ctrl_mutex);
+
   switch (type) {
   /* ioctl()s for working with filters... */
   case MRM_GETFILTERCOUNT:
     u.count = mrm_get_filter_count();
-    if (copy_to_user(param, &u.count, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return 0; /* success */
+    if (copy_to_user(param, &u.count, _IOC_SIZE(type)) != 0) goto fail_fault;
+    rv = 0; /* success */
+    break;
   case MRM_GETFILTER:
-    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) return -EFAULT;
+    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) goto fail_fault;
     rv = mrm_get_filter(&u.filt_conf);
     if (rv == 0) {
       /* only copy back to user on success */
-      if (copy_to_user(param, &u.filt_conf, _IOC_SIZE(type)) != 0) return -EFAULT;
+      if (copy_to_user(param, &u.filt_conf, _IOC_SIZE(type)) != 0) goto fail_fault;
     }
-    return rv;
+    break;
   case MRM_SETFILTER:
-    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return mrm_set_filter(&u.filt_conf);
+    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) goto fail_fault;
+    rv = mrm_set_filter(&u.filt_conf);
+    break;
   case MRM_DELETEFILTER:
-    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return mrm_delete_filter(&u.filt_conf);
+    if (copy_from_user(&u.filt_conf, param, _IOC_SIZE(type)) != 0) goto fail_fault;
+    rv = mrm_delete_filter(&u.filt_conf);
+    break;
 
   /* ioctl()s for working with MAC address remappings... */
   case MRM_GETREMAPCOUNT:
     u.count = mrm_get_remap_count();
-    if (copy_to_user(param, &u.count, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return 0; /* success */
+    if (copy_to_user(param, &u.count, _IOC_SIZE(type)) != 0) goto fail_fault;
+    rv = 0; /* success */
+    break;
   case MRM_GETREMAP:
-    if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) return -EFAULT;
+    if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) goto fail_fault;
     rv = mrm_get_remap_entry(&u.remap_entry);
     if (rv == 0) {
       /* only copy back to user on success */
-      if (copy_to_user(param, &u.remap_entry, _IOC_SIZE(type)) != 0) return -EFAULT;
+      if (copy_to_user(param, &u.remap_entry, _IOC_SIZE(type)) != 0) goto fail_fault;
     }
-    return rv;
+    break;
   case MRM_SETREMAP:
-    if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return mrm_set_remap_entry(&u.remap_entry);
+    if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) goto fail_fault;
+    rv = mrm_set_remap_entry(&u.remap_entry);
+    break;
   case MRM_DELETEREMAP:
-    if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) return -EFAULT;
-    return mrm_delete_remap(u.remap_entry.match_macaddr);
+    if (copy_from_user(&u.remap_entry, param, _IOC_SIZE(type)) != 0) goto fail_fault;
+    rv = mrm_delete_remap(u.remap_entry.match_macaddr);
+    break;
 
   /* ioctl() for completely blowing away the running configuration */
   case MRM_WIPERUNCONF:
     mrm_destroy_remapper_config();
-    return 0; /* success */
+    rv = 0; /* success */
+    break;
 
   default:
-    return -ENOTTY; /* Inappropriate I/O control operation (POSIX.1) */
+    rv = -ENOTTY; /* Inappropriate I/O control operation (POSIX.1) */
+    break;
   }
-  return -ENOTTY; /* Inappropriate I/O control operation (POSIX.1) */
+
+  mutex_unlock(&_ctrl_mutex);
+  return rv;
+
+fail_fault:
+  mutex_unlock(&_ctrl_mutex);
+  return -EFAULT;
+
 }
 
 
@@ -132,13 +159,14 @@ static const struct file_operations _fops = {
 };
 
 int mrm_init_ctlfile( void ) {
-  /**/
   struct proc_dir_entry *pde;
 
   pde = proc_create(PROC_FILENAME, 0600, NULL, &_fops);
   if (pde == NULL) {
     return 0; /* failure */
   }
+
+  mutex_init(&_ctrl_mutex);
 
   return 1; /* success */
 }
