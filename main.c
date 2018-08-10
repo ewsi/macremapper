@@ -6,6 +6,7 @@
 #include <linux/netfilter_bridge.h>
 
 #include "./mrm_runconf.h"
+#include "./mrm_rcdb.h"
 #include "./mrm_ctlfile.h"
 
 
@@ -61,9 +62,15 @@ static struct nf_hook_ops _hops = {
 
 static int __init
 modinit( void ) {
-  printk(KERN_INFO "MRM The MAC Address Re-Mapper is in the kernel\n");
+  int rv;
+
+  rv = mrm_rcdb_init();
+  if (rv != 0) return rv;
+
   nf_register_hook(&_hops);
   mrm_init_ctlfile(); /* XXX not checking for failure! */
+
+  printk(KERN_INFO "MRM The MAC Address Re-Mapper is now in the kernel\n");
 
   return 0; /* all is good */
 }

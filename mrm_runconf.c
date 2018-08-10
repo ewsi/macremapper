@@ -345,7 +345,7 @@ mrm_delete_remap( const unsigned char * const macaddr ) {
 
 
 void mrm_destroy_remapper_config( void ) {
-  mrm_rcdb_destroy(); /* XXX redundant */
+  mrm_rcdb_clear(); /* XXX redundant */
 }
 
 

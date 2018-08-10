@@ -4,8 +4,10 @@
 
 #include "./filter_config_accelerator.h"
 
+#include <linux/list.h>
+
 struct mrm_runconf_filter_node {
-  struct mrm_runconf_filter_node        *next;
+  struct list_head                       list;
   struct mrm_filter_config               conf;
   struct mrm_filter_config_accelerator   accelerator;
   unsigned                               refcnt;

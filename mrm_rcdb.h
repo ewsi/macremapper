@@ -3,7 +3,9 @@
 
 #include "./mrm_private.h"
 
+int mrm_rcdb_init( void );
 void mrm_rcdb_destroy( void );
+void mrm_rcdb_clear( void );
 
 /* filter functions... */
 unsigned mrm_rcdb_get_filter_count( void );

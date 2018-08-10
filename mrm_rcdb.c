@@ -11,21 +11,62 @@
 
 #define MRM_MAX_REMAPS 100
 
-static struct mrm_runconf_filter_node   *_filters = NULL;
 static unsigned                          _remap_count = 0;
 static struct mrm_runconf_remap_entry    _remaps[MRM_MAX_REMAPS];
+//static struct hlist_head                 _remap_head;
 
+
+
+static struct kmem_cache                *_filter_cache __read_mostly;
+static struct kmem_cache                *_remap_cache  __read_mostly;
+
+static struct list_head                  _filter_list;
+
+#define filter_for_each(pos) list_for_each_entry(pos, &_filter_list, list)
+
+int
+mrm_rcdb_init( void ) {
+  _filter_cache = NULL;
+  _remap_cache  = NULL;
+
+  _filter_cache = kmem_cache_create("mrm_filter_cache", sizeof(struct mrm_runconf_filter_node), 0, SLAB_HWCACHE_ALIGN, NULL);
+  if (_filter_cache == NULL) goto failed;
+
+  _remap_cache = kmem_cache_create("mrm_rcdb_cache", sizeof(struct mrm_runconf_remap_entry), 0, SLAB_HWCACHE_ALIGN, NULL);
+  if (_remap_cache == NULL) goto failed;
+
+  INIT_LIST_HEAD(&_filter_list);
+
+  return 0; /* success */
+
+failed:
+  if (_filter_cache != NULL) kmem_cache_destroy(_filter_cache);
+  if (_remap_cache != NULL) kmem_cache_destroy(_remap_cache);
+
+
+  _filter_cache = NULL;
+  _remap_cache  = NULL;
+  
+  return -ENOMEM;
+}
 
 void
 mrm_rcdb_destroy( void ) {
+  mrm_rcdb_clear(); /* TDB if needed */
+
+  kmem_cache_destroy(_remap_cache);
+  kmem_cache_destroy(_filter_cache);
+}
+
+void
+mrm_rcdb_clear( void ) {
   while (_remap_count > 0) {
     mrm_rcdb_delete_remap_entry(_remaps);
   }
 
-  while (_filters != NULL) {
-    mrm_rcdb_delete_filter(_filters);
+  while (mrm_rcdb_get_filter_count() > 0) {
+    mrm_rcdb_delete_filter(mrm_rcdb_lookup_filter_by_index(0));
   }
-
 }
 
 
@@ -36,8 +77,10 @@ mrm_rcdb_get_filter_count( void ) {
   struct mrm_runconf_filter_node   *f;
   unsigned                          result;
 
-  for (result = 0, f = _filters; f != NULL; f = f->next, result++);
-  
+  result = 0;
+  filter_for_each(f) {
+    ++result;
+  }
   return result;
 }
 
@@ -45,7 +88,7 @@ struct mrm_runconf_filter_node *
 mrm_rcdb_lookup_filter_by_name(const char * const name) {
   struct mrm_runconf_filter_node   *f;
 
-  for (f = _filters; f != NULL; f = f->next) {
+  filter_for_each(f) {
     if (strncmp(f->conf.name, name, sizeof(f->conf.name)) == 0)
       return f;
   }
@@ -53,50 +96,48 @@ mrm_rcdb_lookup_filter_by_name(const char * const name) {
   return NULL; /* not found */
 }
 
-struct mrm_runconf_filter_node *mrm_rcdb_lookup_filter_by_index(unsigned index ) {
+struct mrm_runconf_filter_node *mrm_rcdb_lookup_filter_by_index(unsigned index) {
   struct mrm_runconf_filter_node   *f;
 
-  for (f = _filters; (f != NULL) && (index > 0); f = f->next, index--);
+  filter_for_each(f) {
+    if (index-- == 0) break;
+  }
+
   return f;
 }
 
 struct mrm_runconf_filter_node *
 mrm_rcdb_insert_filter( const char * const name) {
-  struct mrm_runconf_filter_node   *f;
   struct mrm_runconf_filter_node   *rv;
 
+  /* first make sure a filter by the same name dont already exist */
   rv = mrm_rcdb_lookup_filter_by_name(name);
   if (rv != NULL) return rv; /* filter by said name already exists */
 
-  rv = kmalloc(sizeof(*rv), GFP_KERNEL);
+  /* allocate a new filter */
+  rv = kmem_cache_alloc(_filter_cache, GFP_ATOMIC);
   if (rv == NULL) return NULL; /* out of memory */
-  memset(rv, 0, sizeof(*rv));
 
-  if (_filters == NULL) {
-    _filters = rv;
-  }
-  else {
-    for (f = _filters; f->next != NULL; f = f->next);
-    f->next = rv;
-  }
+  /* initialize it */
+  memset(rv, 0, sizeof(*rv));
+  INIT_LIST_HEAD(&rv->list);
+  strncpy(rv->conf.name, name, sizeof(rv->conf.name));
+
+  /* add it to the list */
+  list_add(&rv->list, &_filter_list);
 
   return rv;
 }
 
 int
 mrm_rcdb_delete_filter( struct mrm_runconf_filter_node * const filter ) {
-  struct mrm_runconf_filter_node   *f, *fprev;
 
-  for (f = _filters, fprev = NULL; f != NULL; fprev = f, f = f->next) {
-    if (filter != f) continue;
-    if (f->refcnt > 0) return -EADDRINUSE; /* cant delete... in use */
-    if (fprev) fprev->next = f->next;
-    if (f == _filters) _filters = f->next;
-    kfree(f);
-    return 0; /* success */
-  }
+  if (filter->refcnt > 0) return -EADDRINUSE;
 
-  return -EINVAL; /* failed to lookup */
+  list_del(&filter->list);
+  kmem_cache_free(_filter_cache, filter);
+
+  return 0; /* success */
 }
 
 
@@ -179,7 +220,6 @@ mrm_rcdb_delete_remap_entry(struct mrm_runconf_remap_entry * const remap_entry) 
 void
 mrm_rcdb_set_remap_entry_filter(struct mrm_runconf_remap_entry * const remap_entry, struct mrm_runconf_filter_node * const filter) {
   struct mrm_runconf_filter_node * old_filter;
-  
   
   if (remap_entry->filter == filter) return; /* nothing to do... */
 
