@@ -12,7 +12,7 @@
 
 /* filter storage... */
 static struct kmem_cache                *_filter_cache __read_mostly;
-static struct list_head                  _filter_list;
+static struct list_head                  _filter_list  __read_mostly;
 #define filter_for_each(pos) list_for_each_entry(pos, &_filter_list, list)
 
 
@@ -20,9 +20,9 @@ static struct list_head                  _filter_list;
 #define MRM_MAX_REMAPS 100
 #define REMAP_HASH_BITS 8
 #define REMAP_HASH_COUNT (1 << REMAP_HASH_BITS)
-static u32                               _remap_hash_salt;
-static struct hlist_head                 _remap_hash[REMAP_HASH_COUNT];
-static struct kmem_cache                *_remap_cache  __read_mostly;
+static u32                               _remap_hash_salt               __read_mostly;
+static struct hlist_head                 _remap_hash[REMAP_HASH_COUNT]  __read_mostly;
+static struct kmem_cache                *_remap_cache                   __read_mostly;
 #define remap_for_each(pos, headidx) hlist_for_each_entry(pos, &_remap_hash[headidx], hlist)
 
 int
