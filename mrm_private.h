@@ -9,6 +9,7 @@
 
 struct mrm_runconf_filter_node {
   struct list_head                       list;
+  struct rcu_head                        rcu;
   struct mrm_filter_config               conf;
   struct mrm_filter_config_accelerator   accelerator;
   unsigned                               refcnt;
@@ -17,6 +18,7 @@ struct mrm_runconf_filter_node {
 
 struct mrm_runconf_remap_entry {
   struct hlist_node                 hlist;
+  struct rcu_head                   rcu;
   struct mrm_runconf_filter_node   *filter;
   struct net_device                *replace_dev;
   unsigned char                     match_macaddr[6];

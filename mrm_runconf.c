@@ -318,27 +318,14 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
 int
 mrm_delete_remap( const unsigned char * const macaddr ) {
   struct mrm_runconf_remap_entry *r;
-  struct net_device *netdev;
-  int rv;
 
   /* first lookup the remap entry */
   r = mrm_rcdb_lookup_remap_entry_by_macaddr(macaddr);
   if (r == NULL)
     return -EINVAL; /* remap entry not found */
 
-  /* preserve the net device so we can decrement its reference count after removing the remap */
-  netdev = r->replace_dev;
-
   /* attempt to remove the remap entry... */
-  rv = mrm_rcdb_delete_remap_entry(r);
-  if (rv != 0) {
-    /* something failed... entry was not removed... */
-    printk(KERN_ERR "MRM Failed to delete remap entry after lookup!\n");
-    return rv;
-  }
-
-  /* decrement the net device reference count */
-  if (netdev != NULL) dev_put(netdev);
+  mrm_rcdb_delete_remap_entry(r);
 
   return 0; /* success */
 }

@@ -7,13 +7,15 @@
 #include <linux/string.h>
 #include <linux/jhash.h>
 #include <linux/random.h>
+#include <linux/mutex.h>
 
 
+static struct mutex          _refcnt_mutex;
 
 /* filter storage... */
 static struct kmem_cache                *_filter_cache __read_mostly;
 static struct list_head                  _filter_list  __read_mostly;
-#define filter_for_each(pos) list_for_each_entry(pos, &_filter_list, list)
+#define filter_for_each(pos) list_for_each_entry_rcu(pos, &_filter_list, list)
 
 
 /* remap storage... */
@@ -23,7 +25,7 @@ static struct list_head                  _filter_list  __read_mostly;
 static u32                               _remap_hash_salt               __read_mostly;
 static struct hlist_head                 _remap_hash[REMAP_HASH_COUNT]  __read_mostly;
 static struct kmem_cache                *_remap_cache                   __read_mostly;
-#define remap_for_each(pos, headidx) hlist_for_each_entry(pos, &_remap_hash[headidx], hlist)
+#define remap_for_each(pos, headidx) hlist_for_each_entry_rcu(pos, &_remap_hash[headidx], hlist)
 
 int
 mrm_rcdb_init( void ) {
@@ -41,6 +43,8 @@ mrm_rcdb_init( void ) {
   memset(_remap_hash, 0, sizeof(_remap_hash)); /* XXX is there a better way to initialize? */
   get_random_bytes(&_remap_hash_salt, sizeof(_remap_hash_salt));
 
+  mutex_init(&_refcnt_mutex);
+
   return 0; /* success */
 
 failed:
@@ -54,9 +58,33 @@ failed:
   return -ENOMEM;
 }
 
+static void mrm_rcdb_rcu_free_filter(struct rcu_head * /* head */);
+static void mrm_rcdb_rcu_free_remap_entry(struct rcu_head * /* head */);
+
 void
 mrm_rcdb_destroy( void ) {
-  mrm_rcdb_clear(); /* TDB if needed */
+  /* note: by the time this function is called,
+           no more traffic should be flowing,
+           therfore, it should be safe to simply just
+           dealloc this directly...
+  */
+
+  struct mrm_runconf_remap_entry *r;
+  struct mrm_runconf_filter_node *f, *f_tmp;
+  struct hlist_node *hlist_tmp;
+  unsigned i;
+
+
+  for (i = 0; i < REMAP_HASH_COUNT; i++) {
+    hlist_for_each_entry_safe(r, hlist_tmp, &_remap_hash[i], hlist) {
+      r->filter = NULL; /* force no filter refcnt decrement */
+      mrm_rcdb_rcu_free_remap_entry(&r->rcu);
+    }
+  }
+
+  list_for_each_entry_safe(f, f_tmp, &_filter_list, list) {
+    mrm_rcdb_rcu_free_filter(&f->rcu);
+  }
 
   kmem_cache_destroy(_remap_cache);
   kmem_cache_destroy(_filter_cache);
@@ -64,12 +92,29 @@ mrm_rcdb_destroy( void ) {
 
 void
 mrm_rcdb_clear( void ) {
-  while (mrm_rcdb_get_remap_count() > 0) {
-    mrm_rcdb_delete_remap_entry(mrm_rcdb_lookup_remap_entry_by_index(0));
+  /* note: this function MUST NOT be called with the RCU lock acquired */
+
+  struct mrm_runconf_remap_entry *r;
+  struct mrm_runconf_filter_node *f, *f_tmp;
+  struct hlist_node *hlist_tmp;
+  unsigned i;
+
+  for (i = 0; i < REMAP_HASH_COUNT; i++) {
+    hlist_for_each_entry_safe(r, hlist_tmp, &_remap_hash[i], hlist) {
+      /* remove the entry from the hash and wait for all things using the hash to finish... */
+      hlist_del_rcu(&r->hlist);
+      synchronize_rcu();
+
+      /* destroy it */
+      r->filter = NULL; /* force no filter refcnt decrement */
+      mrm_rcdb_rcu_free_remap_entry(&r->rcu);
+    }
   }
 
-  while (mrm_rcdb_get_filter_count() > 0) {
-    mrm_rcdb_delete_filter(mrm_rcdb_lookup_filter_by_index(0));
+  list_for_each_entry_safe(f, f_tmp, &_filter_list, list) {
+    /* remove the entry from the linked list.... no need to wait on RCUs as nothing can be using the filter */
+    list_del_rcu(&f->list);
+    mrm_rcdb_rcu_free_filter(&f->rcu);
   }
 }
 
@@ -120,7 +165,9 @@ mrm_rcdb_insert_filter( const char * const name) {
 
   /* allocate a new filter */
   rv = kmem_cache_alloc(_filter_cache, GFP_ATOMIC);
-  if (rv == NULL) return NULL; /* out of memory */
+  if (rv == NULL) {
+    return NULL; /* out of memory */
+  }
 
   /* initialize it */
   memset(rv, 0, sizeof(*rv));
@@ -128,18 +175,31 @@ mrm_rcdb_insert_filter( const char * const name) {
   strncpy(rv->conf.name, name, sizeof(rv->conf.name));
 
   /* add it to the list */
-  list_add(&rv->list, &_filter_list);
+  list_add_rcu(&rv->list, &_filter_list);
 
   return rv;
+}
+
+static void
+mrm_rcdb_rcu_free_filter(struct rcu_head *head) {
+  struct mrm_runconf_filter_node *f;
+
+  f = container_of(head, struct mrm_runconf_filter_node, rcu);
+  kmem_cache_free(_filter_cache, f);
 }
 
 int
 mrm_rcdb_delete_filter( struct mrm_runconf_filter_node * const filter ) {
 
-  if (filter->refcnt > 0) return -EADDRINUSE;
+  mutex_lock(&_refcnt_mutex);
+  if (filter->refcnt > 0) {
+    mutex_unlock(&_refcnt_mutex);
+    return -EADDRINUSE; 
+  }
+  mutex_unlock(&_refcnt_mutex);
 
-  list_del(&filter->list);
-  kmem_cache_free(_filter_cache, filter);
+  list_del_rcu(&filter->list);
+  call_rcu(&filter->rcu, &mrm_rcdb_rcu_free_filter);
 
   return 0; /* success */
 }
@@ -227,26 +287,29 @@ mrm_rcdb_insert_remap_entry(const unsigned char * const macaddr) {
   memcpy(rv->match_macaddr, macaddr, sizeof(rv->match_macaddr));
 
   /* add it to the hash */
-  hlist_add_head(&rv->hlist, &_remap_hash[mrm_rcsb_hash_macaddr(rv->match_macaddr)]);
+  hlist_add_head_rcu(&rv->hlist, &_remap_hash[mrm_rcsb_hash_macaddr(rv->match_macaddr)]);
 
   return rv;
 }
 
-int
+static void
+mrm_rcdb_rcu_free_remap_entry(struct rcu_head *head) {
+  struct mrm_runconf_remap_entry *r;
+
+  r = container_of(head, struct mrm_runconf_remap_entry, rcu);
+  if (r->replace_dev) dev_put(r->replace_dev); /* this feels super dirty being here... */
+  if (r->filter != NULL) {
+    mutex_lock(&_refcnt_mutex);
+    r->filter->refcnt--;
+    mutex_unlock(&_refcnt_mutex);
+  }
+  kmem_cache_free(_remap_cache, r);
+}
+
+void
 mrm_rcdb_delete_remap_entry(struct mrm_runconf_remap_entry * const remap_entry) {
-  struct mrm_runconf_filter_node *filter;
-
-  /* preserve the filter pointer... */
-  filter = remap_entry->filter;
-
-  /* remove it from the hash list and free it... */
-  hlist_del(&remap_entry->hlist);
-  kmem_cache_free(_remap_cache, remap_entry);
-
-  /* decrement the filter reference count if applicable */
-  if (filter) filter->refcnt--;
-
-  return 0; /* success */
+  hlist_del_rcu(&remap_entry->hlist);
+  call_rcu(&remap_entry->rcu, &mrm_rcdb_rcu_free_remap_entry);
 }
 
 void
@@ -255,11 +318,13 @@ mrm_rcdb_set_remap_entry_filter(struct mrm_runconf_remap_entry * const remap_ent
   
   if (remap_entry->filter == filter) return; /* nothing to do... */
 
+  mutex_lock(&_refcnt_mutex);
   if (filter != NULL) filter->refcnt++;
 
   old_filter = remap_entry->filter;
   remap_entry->filter = filter;
 
   if (old_filter != NULL) old_filter->refcnt--;
+  mutex_unlock(&_refcnt_mutex);
 }
 

@@ -48,7 +48,21 @@ mrm_bridge_outbound_hook(
     return NF_ACCEPT;
   }
 
+  /*
+    it is unclear if we are always called with the RCU lock or not...
+    (primarily due to the NF hooks in "br_netfilter.c")
+
+    therefor, acquiring the RCU lock here...
+
+    this should be ok... the RCU lock is recursive according to this:
+    http://www.rdrop.com/users/paulmck/RCU/whatisRCU.html
+
+  */
+
+
+  rcu_read_lock();
   mrm_perform_ethernet_remap(dstmac, skb); /* XXX return value ? */
+  rcu_read_unlock();
 
   /* always return NF_ACCEPT as we dont intend to filter out any traffic */
   return NF_ACCEPT;
@@ -83,15 +97,14 @@ static void __exit
 modexit( void ) {
   mrm_destroy_ctlfile();
   nf_unregister_hook(&_hops);
-  mrm_destroy_remapper_config();
+  mrm_rcdb_destroy();
   printk(KERN_INFO "MRM The MAC Address Re-Mapper gone bye-bye\n");
 }
 
 module_init(modinit);
 module_exit(modexit);
 
-#warning What license should we use?
-MODULE_LICENSE("Proprietary");
+MODULE_LICENSE("GPL"); /* GPL required for RCU sync stuff */
 MODULE_AUTHOR("Jon Dennis <j.dennis@cablelabs.com>");
 MODULE_DESCRIPTION("MAC Address Re-Mapper");
 
