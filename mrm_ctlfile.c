@@ -53,9 +53,7 @@ mrm_handle_read(struct file *f, char __user *buf, size_t size, loff_t *off) {
     }
     bufprintf_init(tb);
     mutex_lock(&_ctrl_mutex);
-    rcu_read_lock();
     mrm_bufprintf_running_configuration(tb);
-    rcu_read_unlock();
     mutex_unlock(&_ctrl_mutex);
   }
   tb = f->private_data;
@@ -83,7 +81,6 @@ mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
   int rv;
 
   mutex_lock(&_ctrl_mutex);
-  rcu_read_lock();
 
   switch (type) {
   /* ioctl()s for working with filters... */
@@ -134,9 +131,7 @@ mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
 
   /* ioctl() for completely blowing away the running configuration */
   case MRM_WIPERUNCONF:
-    rcu_read_unlock();
-    mrm_destroy_remapper_config(); /* do NOT hold RCU lock to this... */
-    rcu_read_lock();
+    mrm_destroy_remapper_config();
     rv = 0; /* success */
     break;
 
@@ -145,13 +140,11 @@ mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
     break;
   }
 
-  rcu_read_unlock();
   synchronize_rcu(); /* is this really necessary? */
   mutex_unlock(&_ctrl_mutex);
   return rv;
 
 fail_fault:
-  rcu_read_unlock();
   mutex_unlock(&_ctrl_mutex);
   return -EFAULT;
 

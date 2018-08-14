@@ -10,8 +10,6 @@
 #include <linux/mutex.h>
 
 
-static struct mutex          _refcnt_mutex;
-
 /* filter storage... */
 static struct kmem_cache                *_filter_cache __read_mostly;
 static struct list_head                  _filter_list  __read_mostly;
@@ -42,8 +40,6 @@ mrm_rcdb_init( void ) {
 
   memset(_remap_hash, 0, sizeof(_remap_hash)); /* XXX is there a better way to initialize? */
   get_random_bytes(&_remap_hash_salt, sizeof(_remap_hash_salt));
-
-  mutex_init(&_refcnt_mutex);
 
   return 0; /* success */
 
@@ -92,7 +88,6 @@ mrm_rcdb_destroy( void ) {
 
 void
 mrm_rcdb_clear( void ) {
-  /* note: this function MUST NOT be called with the RCU lock acquired */
 
   struct mrm_runconf_remap_entry *r;
   struct mrm_runconf_filter_node *f, *f_tmp;
@@ -191,12 +186,9 @@ mrm_rcdb_rcu_free_filter(struct rcu_head *head) {
 int
 mrm_rcdb_delete_filter( struct mrm_runconf_filter_node * const filter ) {
 
-  mutex_lock(&_refcnt_mutex);
   if (filter->refcnt > 0) {
-    mutex_unlock(&_refcnt_mutex);
     return -EADDRINUSE; 
   }
-  mutex_unlock(&_refcnt_mutex);
 
   list_del_rcu(&filter->list);
   call_rcu(&filter->rcu, &mrm_rcdb_rcu_free_filter);
@@ -264,34 +256,6 @@ struct mrm_runconf_remap_entry *mrm_rcdb_lookup_remap_entry_by_index(unsigned in
   return NULL; /*lookup failed */
 }
 
-struct mrm_runconf_remap_entry *
-mrm_rcdb_insert_remap_entry(const unsigned char * const macaddr) {
-  struct mrm_runconf_remap_entry *rv;
-
-  /* does a remap entry by this name already exist? if so, return the existing one... */
-  rv = mrm_rcdb_lookup_remap_entry_by_macaddr(macaddr);
-  if (rv != NULL) return rv;
-
-  if (mrm_rcdb_get_remap_count() == MRM_MAX_REMAPS) {
-    return NULL; /* were full... cant insert any more remaps */
-  }
-
-  /* allocate a new remap entry... */
-  rv = kmem_cache_alloc(_remap_cache, GFP_ATOMIC);
-  if (rv == NULL) {
-    return NULL; /* out of memory... */
-  }
-
-  /* initialize it... */
-  memset(rv, 0, sizeof(*rv));
-  memcpy(rv->match_macaddr, macaddr, sizeof(rv->match_macaddr));
-
-  /* add it to the hash */
-  hlist_add_head_rcu(&rv->hlist, &_remap_hash[mrm_rcsb_hash_macaddr(rv->match_macaddr)]);
-
-  return rv;
-}
-
 static void
 mrm_rcdb_rcu_free_remap_entry(struct rcu_head *head) {
   struct mrm_runconf_remap_entry *r;
@@ -299,32 +263,87 @@ mrm_rcdb_rcu_free_remap_entry(struct rcu_head *head) {
   r = container_of(head, struct mrm_runconf_remap_entry, rcu);
   if (r->replace_dev) dev_put(r->replace_dev); /* this feels super dirty being here... */
   if (r->filter != NULL) {
-    mutex_lock(&_refcnt_mutex);
     r->filter->refcnt--;
-    mutex_unlock(&_refcnt_mutex);
   }
   kmem_cache_free(_remap_cache, r);
 }
 
-void
-mrm_rcdb_delete_remap_entry(struct mrm_runconf_remap_entry * const remap_entry) {
-  hlist_del_rcu(&remap_entry->hlist);
-  call_rcu(&remap_entry->rcu, &mrm_rcdb_rcu_free_remap_entry);
+
+struct mrm_runconf_remap_entry *
+mrm_rcdb_update_remap_entry(
+  const unsigned char * const             match_macaddr,
+  struct mrm_runconf_filter_node * const  filter,
+  const unsigned char * const             replace_macaddr,
+  struct net_device * const               replace_dev
+) {
+  struct mrm_runconf_remap_entry *new_remap, *existing_remap;
+
+  /* mandatory parameter sanity checks... */
+  if (match_macaddr == NULL) return NULL;
+  if (filter == NULL) return NULL;
+  if (replace_macaddr == NULL) return NULL;
+
+  /* find if we have an existing remap entry... */
+  existing_remap = mrm_rcdb_lookup_remap_entry_by_macaddr(match_macaddr);
+
+  /* is our remap table full ? (if were inserting a new entry that is...) */
+  if ((existing_remap == NULL) && (mrm_rcdb_get_remap_count() == MRM_MAX_REMAPS)) {
+    return NULL; /* were full... cant insert any more remaps */
+  }
+
+  /* allocate a new entry... */
+  new_remap = kmem_cache_alloc(_remap_cache, GFP_ATOMIC);
+  if (new_remap == NULL) {
+    return NULL; /* out of memory... */
+  }
+
+  /* initialize and populate the new remap entry struct instance... */
+  memset(new_remap, 0, sizeof(*new_remap));
+  memcpy(new_remap->match_macaddr, match_macaddr, sizeof(new_remap->match_macaddr));
+  memcpy(new_remap->replace_macaddr, replace_macaddr, sizeof(new_remap->replace_macaddr));
+  new_remap->filter = filter;
+  new_remap->replace_dev = replace_dev;
+
+  /* update the filter reference count... */
+  new_remap->filter->refcnt++;
+
+  /* insert it into the "live" collection... */
+  hlist_add_head_rcu(&new_remap->hlist, &_remap_hash[mrm_rcsb_hash_macaddr(new_remap->match_macaddr)]);
+
+  /* pull the existing remap entry out of the "live" collection */
+  if (existing_remap != NULL) {
+    hlist_del_rcu(&existing_remap->hlist);
+  }
+
+  /* wait for the live flow to be updated */
+  synchronize_rcu();
+
+  /* at this point all traffic should be diverted using only the new remap object...
+     cleanup the old instance... */
+  if (existing_remap != NULL) {
+    mrm_rcdb_rcu_free_remap_entry(&existing_remap->rcu);
+  }
+
+  return new_remap; /* all is good */
 }
 
 void
-mrm_rcdb_set_remap_entry_filter(struct mrm_runconf_remap_entry * const remap_entry, struct mrm_runconf_filter_node * const filter) {
-  struct mrm_runconf_filter_node * old_filter;
-  
-  if (remap_entry->filter == filter) return; /* nothing to do... */
+mrm_rcdb_delete_remap_entry(struct mrm_runconf_remap_entry * const remap_entry) {
 
-  mutex_lock(&_refcnt_mutex);
-  if (filter != NULL) filter->refcnt++;
+  /* sanity check... */
+  if (remap_entry == NULL) return;
 
-  old_filter = remap_entry->filter;
-  remap_entry->filter = filter;
+  /* pull the existing remap entry out of the "live" collection... */
+  hlist_del_rcu(&remap_entry->hlist);
 
-  if (old_filter != NULL) old_filter->refcnt--;
-  mutex_unlock(&_refcnt_mutex);
+  /* wait for the live flow to be updated */
+  synchronize_rcu();
+
+  /* cleanup... */
+  mrm_rcdb_rcu_free_remap_entry(&remap_entry->rcu);
+
+  /* note: this could be cleaned up in a non blocking fashing by doing a:
+  call_rcu(&remap_entry->rcu, &mrm_rcdb_rcu_free_remap_entry);
+  */
 }
 

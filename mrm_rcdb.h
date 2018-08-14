@@ -19,9 +19,8 @@ int mrm_rcdb_delete_filter( struct mrm_runconf_filter_node * const /* filter */ 
 unsigned mrm_rcdb_get_remap_count( void );
 struct mrm_runconf_remap_entry *mrm_rcdb_lookup_remap_entry_by_macaddr(const unsigned char * const /* macaddr */);
 struct mrm_runconf_remap_entry *mrm_rcdb_lookup_remap_entry_by_index(unsigned /* index */);
-struct mrm_runconf_remap_entry *mrm_rcdb_insert_remap_entry(const unsigned char * const /* macaddr */);
+struct mrm_runconf_remap_entry *mrm_rcdb_update_remap_entry(const unsigned char * const /* match_macaddr */, struct mrm_runconf_filter_node * const /* filter */, const unsigned char * const /* replace_macaddr */, struct net_device * const /* replace_dev */);
 void mrm_rcdb_delete_remap_entry(struct mrm_runconf_remap_entry * const /* remap_entry */);
-void mrm_rcdb_set_remap_entry_filter(struct mrm_runconf_remap_entry * const /* remap_entry */, struct mrm_runconf_filter_node * const /* filter */);
 
 
 #endif /* #ifndef MRM_RCDC_H_INCLUDED */

@@ -249,10 +249,8 @@ mrm_get_remap_entry( struct mrm_remap_entry * const e) {
 
 int
 mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
-  struct mrm_runconf_remap_entry *r;
   struct mrm_runconf_filter_node *f;
   struct net_device *dev;
-  struct net_device *freedev;
 
   /* first find the specified filter by name... */
   f = mrm_rcdb_lookup_filter_by_name(remap->filter_name);
@@ -283,33 +281,17 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
 
   /* IMPORTANT: as of here, the reference count has been increased on dev */
 
-  /* lookup/insert remap entry... */
-  r = mrm_rcdb_insert_remap_entry(remap->match_macaddr);
-  if (r == NULL) {
-    /* were full... cant insert any more remaps */
+  /* insert/update remap entry... */
+  if (mrm_rcdb_update_remap_entry(remap->match_macaddr, f, remap->replace_macaddr, dev) == NULL) {
+    /* failed for some reason... most likely were full */
     if (dev != NULL) dev_put(dev);
     return -ENOMEM;
   }
 
-  /* ok so now both the remap and filter variable are pointing to the correct place... */
-
-  /* copy over the replace value */
-  memcpy(r->replace_macaddr, remap->replace_macaddr, sizeof(r->replace_macaddr));
-
-  /* apply the interface device replace setting */
-  if (dev == r->replace_dev) {
-    /* replace device is already correct... no need to change */
-    if (dev != NULL) dev_put(dev);
-  }
-  else {
-    /* need to replace the device */
-    freedev = r->replace_dev;
-    r->replace_dev = dev;
-    if (freedev) dev_put(freedev);
-  }
-
-  /* apply the filter... */
-  mrm_rcdb_set_remap_entry_filter(r, f); /* note: this function correctly update the reference counters */
+  /* note: once a remap entry is successfully inserted, it is now the 
+           responsibility of "mrm_rcdb.c" to "dev_put()" the
+           referenced net_device...
+  */
 
   /* thats all folks */
   return 0; /* success */

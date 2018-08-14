@@ -97,7 +97,7 @@ static void __exit
 modexit( void ) {
   mrm_destroy_ctlfile();
   nf_unregister_hook(&_hops);
-  mrm_rcdb_destroy();
+  mrm_rcdb_destroy(); /* imperative that this happens last */
   printk(KERN_INFO "MRM The MAC Address Re-Mapper gone bye-bye\n");
 }
 
