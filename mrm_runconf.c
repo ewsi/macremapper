@@ -37,7 +37,7 @@ mrm_perform_ipv4_remap(
   validate_port = 0;
   iph = ip_hdr(skb);
 
-  switch (ntohs(iph->protocol)) {
+  switch (iph->protocol) {
   case IPPROTO_TCP:
     validate_port = 1;
     ruleref = &target_rules->tcp_targeted_rules;
