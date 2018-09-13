@@ -54,7 +54,7 @@ mrm_bridge_outbound_hook(
 
     therefor, acquiring the RCU lock here...
 
-    this should be ok... the RCU lock is recursive according to this:
+    this should be ok... the RCU lock is "recursive" according to this:
     http://www.rdrop.com/users/paulmck/RCU/whatisRCU.html
 
   */
