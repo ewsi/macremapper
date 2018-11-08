@@ -22,5 +22,6 @@ LT_INIT
 AC_CONFIG_FILES(Makefile)
 AC_CONFIG_FILES(mrmfilterparser/Makefile)
 AC_CONFIG_FILES(mrmctl/Makefile)
+AC_CONFIG_FILES(include/Makefile)
 
 AC_OUTPUT
