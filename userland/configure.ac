@@ -1,0 +1,26 @@
+AC_INIT(mrmuser, 0.1, j.dennis@cablelabs.com)
+AM_INIT_AUTOMAKE([-Wall -Werror foreign])
+AC_PREREQ(2.63)
+
+
+AC_PROG_CC
+AC_PROG_CPP
+AM_PROG_AR
+
+AC_CONFIG_MACRO_DIR([m4])
+
+PACKAGE=mrmuser
+VERSION=0.1
+
+AM_INIT_AUTOMAKE
+
+AC_ENABLE_STATIC
+AC_DISABLE_SHARED
+
+LT_INIT
+
+AC_CONFIG_FILES(Makefile)
+AC_CONFIG_FILES(mrmfilterparser/Makefile)
+AC_CONFIG_FILES(mrmctl/Makefile)
+
+AC_OUTPUT

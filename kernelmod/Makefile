@@ -60,5 +60,3 @@ modinfo:
 modules_install:
 	$(MAKE) -C $(KERNEL_PATH) M=$(PWD) modules_install
 
-serve: all
-	 scp $(MODULE_NAME).ko 10.32.32.92:/build/tftproot/
