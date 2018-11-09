@@ -57,5 +57,5 @@ modinfo:
 	modinfo $(MODULE_NAME).ko
 
 modules_install:
-	$(MAKE) -C $(KERNEL_SRC) $@
+	$(MAKE) -C $(KERNEL_SRC) M=$(MABSPATH) $@
 
