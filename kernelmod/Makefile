@@ -35,7 +35,7 @@ $(error KERNEL_SRC not defined!)
 endif
 
 
-MODULE_PATH := $(shell MODULE_PATH)
+MODULE_PATH := $(shell pwd)
 
 
 
