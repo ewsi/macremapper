@@ -8,7 +8,7 @@
 ## $ sudo apt-get install linux-headers-`uname -r`
 ##
 ## Uncomment the following:
-KERNEL_PATH ?= /usr/src/linux-headers-`uname -r`
+KERNEL_SRC ?= /usr/src/linux-headers-`uname -r`
 
 
 
@@ -30,8 +30,8 @@ KERNEL_PATH ?= /usr/src/linux-headers-`uname -r`
 #export CROSS_COMPILE ?= $(RDK_BUILD)/tmp/sysroots/x86_64-linux/usr/bin/core2-32-rdk-linux/i586-rdk-linux-
 
 
-ifeq ($(KERNEL_PATH),)
-$(error KERNEL_PATH not defined!)
+ifeq ($(KERNEL_SRC),)
+$(error KERNEL_SRC not defined!)
 endif
 
 
@@ -48,15 +48,15 @@ obj-m := $(MODULE_NAME).o
 .PHONY: all clean modinfo serve
 
 all:
-	$(MAKE) -C $(KERNEL_PATH) M=$(PWD) modules
+	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) modules
 	$(MAKE) modinfo
 
 clean:
-	$(MAKE) -C $(KERNEL_PATH) M=$(PWD) clean
+	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) clean
 
 modinfo:
 	modinfo $(MODULE_NAME).ko
 
 modules_install:
-	$(MAKE) -C $(KERNEL_PATH) M=$(PWD) modules_install
+	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) $@
 
