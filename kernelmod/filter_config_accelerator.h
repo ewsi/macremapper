@@ -1,3 +1,10 @@
+/*
+* Copyright (c) 2018 Cable Television Laboratories, Inc. ("CableLabs")
+*                    and others.  All rights reserved.
+*
+* Created by Jon Dennis (j.dennis@cablelabs.com)
+*/
+
 #ifndef FILTER_CONFIG_ACCELERATOR_H_INCLUDED
 #define FILTER_CONFIG_ACCELERATOR_H_INCLUDED
 

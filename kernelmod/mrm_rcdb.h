@@ -1,3 +1,10 @@
+/*
+* Copyright (c) 2018 Cable Television Laboratories, Inc. ("CableLabs")
+*                    and others.  All rights reserved.
+*
+* Created by Jon Dennis (j.dennis@cablelabs.com)
+*/
+
 #ifndef MRM_RCDC_H_INCLUDED
 #define MRM_RCDC_H_INCLUDED
 

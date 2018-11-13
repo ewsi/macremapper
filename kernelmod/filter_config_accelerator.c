@@ -1,3 +1,9 @@
+/*
+* Copyright (c) 2018 Cable Television Laboratories, Inc. ("CableLabs")
+*                    and others.  All rights reserved.
+*
+* Created by Jon Dennis (j.dennis@cablelabs.com)
+*/
 
 #include "./filter_config_accelerator.h"
 
