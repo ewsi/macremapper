@@ -75,6 +75,12 @@ mrm_bridge_outbound_hook(
   return NF_ACCEPT;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+  #define nf_register_hook(HOOK) nf_register_net_hook(&init_net, HOOK)
+  #define nf_unregister_hook(HOOK) nf_unregister_net_hook(&init_net, HOOK)
+#endif
+
+
 static struct nf_hook_ops _hops = {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,0,0)
   owner:     THIS_MODULE,
