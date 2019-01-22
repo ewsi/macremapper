@@ -128,12 +128,22 @@ parse_macaddr(unsigned char * const output, const char * const str) {
 }
 
 static int
-remap(const char * const filter_name, const char * const match_macaddr, const char * const remap_macaddr, const char * const replace_ifname) {
-  struct mrm_remap_entry re;
+remap(int argc, char **argv) {
+  const char *filter_name;
+  const char *match_macaddr;
+  const char *remap_macaddr;
+  const char *replace_ifname;
   int fd;
+  struct mrm_remap_entry re;
 
+  if (argc < 5) return 1; /* defensive */
+
+  /* initialize variables and put things into human-readable variable names */
   bzero(&re, sizeof(re));
+  filter_name   = argv[2];
+  match_macaddr = argv[3];
 
+  /* validate + parse "statically-positioned" parameters */
   if (filter_name[0] == '\0') {
     fprintf(stderr, "Invalid Filter Name\n");
     return 1;
@@ -144,15 +154,39 @@ remap(const char * const filter_name, const char * const match_macaddr, const ch
     fprintf(stderr, "Invalid Match MAC Address: %s\n", match_macaddr);
     return 1;
   }
-  if (!parse_macaddr(re.replace_macaddr, remap_macaddr)) {
-    fprintf(stderr, "Invalid Replace MAC Address: %s\n", remap_macaddr);
-    return 1;
+
+  /* parse + validate the remap mac address list one-by-one */
+  argc -= 4;
+  argv += 4;
+  while ( argc > 0 ) {
+    /* first put things into human-readable variable names */
+    remap_macaddr = *argv;
+    --argc; ++argv;
+    replace_ifname = NULL;
+    if (argc > 0) {
+      replace_ifname = *argv;
+      if (replace_ifname[0] == '\0') {
+        replace_ifname = NULL;
+      }
+      --argc; ++argv;
+    }
+
+    /* then add the replacement to the list... */
+    if (re.replace_count >= MRM_MAX_REPLACE) {
+      fprintf(stderr, "Too many replacements\n");
+      return 1;
+    }
+    if (!parse_macaddr(re.replace[re.replace_count].macaddr, remap_macaddr)) {
+      fprintf(stderr, "Invalid Match MAC Address: %s\n", match_macaddr);
+      return 1;
+    }
+    if (replace_ifname != NULL) {
+      strncpy(re.replace[re.replace_count].ifname, replace_ifname, sizeof(re.replace[re.replace_count].ifname));
+    }
+    ++re.replace_count;
   }
 
-  if (replace_ifname != NULL) {
-    strncpy(re.replace_ifname, replace_ifname, sizeof(re.replace_ifname));
-  }
-
+  /* write the configuration to the driver... */
   fd = open_driver();
   if (ioctl(fd, MRM_SETREMAP, &re) == -1) {
     perror("ioctl(MRM_SETREMAP) failed");
@@ -160,7 +194,7 @@ remap(const char * const filter_name, const char * const match_macaddr, const ch
   }
   close(fd);
   return 0;
-};
+}
 
 static int
 rmremap(const char * const match_macaddr) {
@@ -192,7 +226,15 @@ usage( void ) {
   fprintf(stderr, "    . loadfilter <filter_name> <file_name> -- Load in a filter from filter configuration file\n");
   fprintf(stderr, "    . rmfilter <filter_name> -- Delete a filter name\n");
   fprintf(stderr, "    . remap <filter_name> <match_macaddr> <dest_macaddr> [dest_ifname] -- Add a remap\n");
+  fprintf(stderr, "    . remap <filter_name> <match_macaddr> <dest_macaddr_1> <dest_ifname_1> <dest_macaddr_N> <dest_ifname_N> -- Add a remap with multiple replacements\n");
   fprintf(stderr, "    . rmremap <match_macaddr> -- Delete a remap\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "  Multiple remaps:\n");
+  fprintf(stderr, "    It is possible to provide multiple replacements with a remap. However, the 'dest_ifname' "
+                      "parameter must be provided with reach remap replacement. This can be an empty string "
+                      "if it is not intended to perform an interface move with the MAC address replacement. "
+                      "\n");
   _exit(1);
 }
 
@@ -216,8 +258,8 @@ main( int argc, char *argv[] ) {
     return rmfilter(argv[2]);
   }
   if (strcmp(argv[1], "remap") == 0) {
-    if ((argc < 5) || (argc > 6)) usage();
-    return remap(argv[2], argv[3], argv[4], (argc == 6) ? argv[5] : NULL);
+    if (argc < 5) usage();
+    return remap(argc, argv);
   }
   if (strcmp(argv[1], "rmremap") == 0) {
     if (argc != 3) usage();
