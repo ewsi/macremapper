@@ -307,6 +307,7 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
   for (i = 0; i < remap->replace_count; ++i) {
     if (remap->replace[i].ifname[0] != '\0') {
       if (strnlen(remap->replace[i].ifname, sizeof(remap->replace[i].ifname)) == sizeof(remap->replace[i].ifname)) {
+        printk(KERN_WARNING "MRM Replace interface name too long!\n");
         rv = -EINVAL;
         goto done; /* sanity check to ensure the string is "\0" terminated */
       }
@@ -318,6 +319,7 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
       */
       dev[i] = dev_get_by_name(&init_net, remap->replace[i].ifname);
       if (dev[i] == NULL) {
+        printk(KERN_WARNING "MRM Bad interface name: '%s'!\n", remap->replace[i].ifname);
         rv = -EINVAL;
         goto done; /* failed to lookup device by name */
       }
