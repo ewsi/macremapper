@@ -29,6 +29,17 @@
 #KERNEL_SRC           ?= $(RDK_BUILD)/tmp/sysroots/arrisxb3atom/usr/src/kernel
 #export CROSS_COMPILE ?= $(RDK_BUILD)/tmp/sysroots/x86_64-linux/usr/bin/core2-32-rdk-linux/i586-rdk-linux-
 
+##
+## To cross-compile for TP-Link OpenWRT build
+##
+## Uncomment the following:
+#export ARCH          ?= mips
+#WRT_DIR              ?= /home/jdennis/dcwifi_openwrt/openwrt
+#KERNEL_SRC           ?= $(WRT_DIR)/build_dir/target-mips_24kc_musl/linux-ath79_generic/linux-4.14.93
+#export CROSS_COMPILE ?= $(WRT_DIR)/staging_dir/toolchain-mips_24kc_gcc-7.4.0_musl/initial/bin/mips-openwrt-linux-musl-
+
+
+
 
 ifeq ($(KERNEL_SRC),)
 $(error KERNEL_SRC not defined!)

@@ -266,9 +266,12 @@ struct mrm_runconf_remap_entry *mrm_rcdb_lookup_remap_entry_by_index(unsigned in
 static void
 mrm_rcdb_rcu_free_remap_entry(struct rcu_head *head) {
   struct mrm_runconf_remap_entry *r;
+  unsigned i;
 
   r = container_of(head, struct mrm_runconf_remap_entry, rcu);
-  if (r->replace_dev) dev_put(r->replace_dev); /* this feels super dirty being here... */
+  for (i = 0; i < r->replace_count; ++i) {
+    if (r->replace[i].dev) dev_put(r->replace[i].dev); /* this feels super dirty being here... */
+  }
   if (r->filter != NULL) {
     r->filter->refcnt--;
   }
@@ -280,15 +283,21 @@ struct mrm_runconf_remap_entry *
 mrm_rcdb_update_remap_entry(
   const unsigned char * const             match_macaddr,
   struct mrm_runconf_filter_node * const  filter,
-  const unsigned char * const             replace_macaddr,
-  struct net_device * const               replace_dev
+  const unsigned                          replace_count,
+  const unsigned char ** const            replace_macaddr,
+  struct net_device ** const              replace_dev
 ) {
   struct mrm_runconf_remap_entry *new_remap, *existing_remap;
+  unsigned i;
 
   /* mandatory parameter sanity checks... */
   if (match_macaddr == NULL) return NULL;
   if (filter == NULL) return NULL;
   if (replace_macaddr == NULL) return NULL;
+  if ((replace_count < 1) || (replace_count > MRM_MAX_REPLACE)) return NULL; /* yeah i know... being super defensive */
+  for (i = 0; i < replace_count; ++i) {
+    if (replace_macaddr[i] == NULL) return NULL;
+  }
 
   /* find if we have an existing remap entry... */
   existing_remap = mrm_rcdb_lookup_remap_entry_by_macaddr(match_macaddr);
@@ -307,9 +316,12 @@ mrm_rcdb_update_remap_entry(
   /* initialize and populate the new remap entry struct instance... */
   memset(new_remap, 0, sizeof(*new_remap));
   memcpy(new_remap->match_macaddr, match_macaddr, sizeof(new_remap->match_macaddr));
-  memcpy(new_remap->replace_macaddr, replace_macaddr, sizeof(new_remap->replace_macaddr));
   new_remap->filter = filter;
-  new_remap->replace_dev = replace_dev;
+  new_remap->replace_count = replace_count;
+  for (i = 0; i < replace_count; ++i) {
+    memcpy(new_remap->replace[i].macaddr, replace_macaddr[i], sizeof(new_remap->replace[i].macaddr));
+    if (replace_dev != NULL) new_remap->replace[i].dev = replace_dev[i];
+  }
 
   /* update the filter reference count... */
   new_remap->filter->refcnt++;

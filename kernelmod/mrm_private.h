@@ -27,9 +27,13 @@ struct mrm_runconf_remap_entry {
   struct hlist_node                 hlist;
   struct rcu_head                   rcu;
   struct mrm_runconf_filter_node   *filter;
-  struct net_device                *replace_dev;
   unsigned char                     match_macaddr[6];
-  unsigned char                     replace_macaddr[6];
+  unsigned                          replace_count; /* total count of elements in the replace[] member */
+  unsigned                          replace_idx;   /* used by the "critical path" to round-robin which replace[] member is to be used */
+  struct {
+    unsigned char                     macaddr[6];
+    struct net_device                *dev;
+  } replace[MRM_MAX_REPLACE];
 };
 
 #endif /* #ifndef MRM_PRIVATE_H_INCLUDED */

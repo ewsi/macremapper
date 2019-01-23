@@ -28,6 +28,7 @@
 
 #define MRM_FILTER_MAX_RULES 10
 #define MRM_FILTER_NAME_MAX  24
+#define MRM_MAX_REPLACE      10
 
 
 /* filter data types */
@@ -111,9 +112,12 @@ struct mrm_filter_config {
 /* remap data types */
 struct mrm_remap_entry {
   unsigned char   match_macaddr[6];
-  unsigned char   replace_macaddr[6];
-  char            replace_ifname[IFNAMSIZ];
   char            filter_name[MRM_FILTER_NAME_MAX];
+  unsigned        replace_count; /* must be >=1 and <= MRM_MAX_REPLACE */
+  struct {
+    unsigned char   macaddr[6];
+    char            ifname[IFNAMSIZ];
+  } replace[MRM_MAX_REPLACE];
 };
 
 #endif /* #ifndef MACREMAPPER_FILTER_CONFIG_H_INCLUDED */
