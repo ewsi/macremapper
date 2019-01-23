@@ -152,6 +152,24 @@ mrm_perform_ipv6_remap(
   return 0; /* XXX NOT IMPLEMENTED!!! */
 }
 
+static inline void
+mrm_apply_remap(
+    struct mrm_runconf_remap_entry * const remaprule,
+    unsigned char * const dst,
+    struct sk_buff * const skb
+  ) {
+  /* this is THE function that actually moves the frame elsewhere... */
+
+  /* implement a basic "round-robin" replacement policy... */
+  const unsigned replace_idx = remaprule->replace_idx;
+  if (++remaprule->replace_idx >= remaprule->replace_count) remaprule->replace_idx = 0;
+
+  memcpy(dst, remaprule->replace[replace_idx].macaddr, 6);
+  if (remaprule->replace[replace_idx].dev != NULL) {
+    skb->dev = remaprule->replace[replace_idx].dev;
+  }
+}
+
 int
 mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb) {
   struct mrm_runconf_remap_entry * remaprule;
@@ -174,19 +192,13 @@ mrm_perform_ethernet_remap(unsigned char * const dst, struct sk_buff * const skb
   switch (htons(skb->protocol)) {
   case ETH_P_IP:
     if (mrm_perform_ipv4_remap(remaprule, dst, transmission_length, skb)) {
-      memcpy(dst, remaprule->replace_macaddr, 6);
-      if (remaprule->replace_dev != NULL) {
-        skb->dev = remaprule->replace_dev;
-      }
+      mrm_apply_remap(remaprule, dst, skb);
       return 1; /* remap applied */
     }
     break;
   case ETH_P_IPV6:
     if (mrm_perform_ipv6_remap(remaprule, dst, transmission_length, skb)) {
-      memcpy(dst, remaprule->replace_macaddr, 6);
-      if (remaprule->replace_dev != NULL) {
-        skb->dev = remaprule->replace_dev;
-      }
+      mrm_apply_remap(remaprule, dst, skb);
       return 1; /* remap applied */
     }
     break;
@@ -245,54 +257,84 @@ mrm_get_remap_count( void ) {
 int
 mrm_get_remap_entry( struct mrm_remap_entry * const e) {
   const struct mrm_runconf_remap_entry *r;
+  unsigned i;
 
   r = mrm_rcdb_lookup_remap_entry_by_macaddr(e->match_macaddr);
   if (r == NULL) return -EINVAL; /* remap entry not found */
 
-  memcpy(e->replace_macaddr, r->replace_macaddr, sizeof(r->replace_macaddr));
   strncpy(e->filter_name, r->filter->conf.name, sizeof(e->filter_name));
+
+  for (i = 0; i < r-> replace_count; ++i) {
+    memcpy(e->replace[i].macaddr, r->replace[i].macaddr, sizeof(r->replace[i].macaddr));
+
+    /* XXX WARNING!
+       this is not currently populating the device name!!
+    */
+  }
   return 0; /* success */
 }
 
 int
 mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
   struct mrm_runconf_filter_node *f;
-  struct net_device *dev;
+  const unsigned char *replace_macaddrs[MRM_MAX_REPLACE];
+  struct net_device *dev[MRM_MAX_REPLACE];
+  unsigned i;
+  int rv;
 
-  /* first find the specified filter by name... */
+  /* initial values... */
+  memset(&dev, 0, sizeof(dev));
+  memset(&replace_macaddrs, 0, sizeof(replace_macaddrs));
+  rv = 0; /* sucess until proven otherwise */
+
+  /* validate the replacement targets... */
+  if ((remap->replace_count < 1) || (remap->replace_count > MRM_MAX_REPLACE)) {
+    printk(KERN_WARNING "MRM Bad remap replace count!\n");
+    rv = -EINVAL;
+    goto done;
+  }
+
+  /* find the specified filter by name... */
   f = mrm_rcdb_lookup_filter_by_name(remap->filter_name);
   if (f == NULL) {
     /* given filter name does not exist! */
     printk(KERN_WARNING "MRM Invalid Filter Name!\n");
-    return -EINVAL;
+    rv = -EINVAL;
+    goto done;
   }
 
-  /* resolve the given interface name... */
-  dev = NULL;
-  if (remap->replace_ifname[0] != '\0') {
-    if (strnlen(remap->replace_ifname, sizeof(remap->replace_ifname)) == sizeof(remap->replace_ifname)) {
-      return -EINVAL; /* sanity check to ensure the string is "\0" terminated */
+  /* resolve the interface name & copy MAC address pointers for each given replacement... */
+  for (i = 0; i < remap->replace_count; ++i) {
+    if (remap->replace[i].ifname[0] != '\0') {
+      if (strnlen(remap->replace[i].ifname, sizeof(remap->replace[i].ifname)) == sizeof(remap->replace[i].ifname)) {
+        printk(KERN_WARNING "MRM Replace interface name too long!\n");
+        rv = -EINVAL;
+        goto done; /* sanity check to ensure the string is "\0" terminated */
+      }
+      /* XXX WARNING: using "&init_net" here makes it use the 
+                      "main system" network namespace...
+                      if this is invoked by an ioctl() from
+                      a process within a container, this
+                      may be a security issue... TBD...
+      */
+      dev[i] = dev_get_by_name(&init_net, remap->replace[i].ifname);
+      if (dev[i] == NULL) {
+        printk(KERN_WARNING "MRM Bad interface name: '%s'!\n", remap->replace[i].ifname);
+        rv = -EINVAL;
+        goto done; /* failed to lookup device by name */
+      }
     }
-    /* XXX WARNING: using "&init_net" here makes it use the 
-                    "main system" network namespace...
-                    if this is invoked by an ioctl() from
-                    a process within a container, this
-                    may be a security issue... TBD...
-    */
-    dev = dev_get_by_name(&init_net, remap->replace_ifname);
-    if (dev == NULL) {
-      if (dev != NULL) dev_put(dev);
-      return -EINVAL; /* failed to lookup device by name */
-    }
+    
+    replace_macaddrs[i] = remap->replace[i].macaddr;
   }
 
   /* IMPORTANT: as of here, the reference count has been increased on dev */
 
   /* insert/update remap entry... */
-  if (mrm_rcdb_update_remap_entry(remap->match_macaddr, f, remap->replace_macaddr, dev) == NULL) {
+  if (mrm_rcdb_update_remap_entry(remap->match_macaddr, f, remap->replace_count, replace_macaddrs, dev) == NULL) {
     /* failed for some reason... most likely were full */
-    if (dev != NULL) dev_put(dev);
-    return -ENOMEM;
+    rv = -ENOMEM;
+    goto done;
   }
 
   /* note: once a remap entry is successfully inserted, it is now the 
@@ -300,8 +342,17 @@ mrm_set_remap_entry( const struct mrm_remap_entry * const remap ) {
            referenced net_device...
   */
 
+
+done:
+  if (rv < 0) {
+    /* something failed, need to cleanup any references... */
+    for (i = 0; i < (sizeof(dev) / sizeof(dev[0])); ++i) {
+      if (dev[i] != NULL) dev_put(dev[i]);
+    }
+  }
+
   /* thats all folks */
-  return 0; /* success */
+  return rv;
 }
 
 int
@@ -505,14 +556,17 @@ mrm_bufprintf_running_configuration(struct bufprintf_buf * const tb) {
 
     bufprintf(tb, "    Match MAC Address: ");
     dump_single_mac_address(tb, r->match_macaddr);
-    bufprintf(tb, "    Replace MAC Address: ");
-    dump_single_mac_address(tb, r->replace_macaddr);
-    bufprintf(tb, "    Replace Interface: ");
-    if (r->replace_dev == NULL) {
-      bufprintf(tb, "(None)\n");
-    }
-    else {
-      bufprintf(tb, "%.*s\n", (int)sizeof(r->replace_dev->name), r->replace_dev->name);
+    bufprintf(tb, "    Replacements: (Total Count %u)\n", r->replace_count);
+    for (j = 0; j <  r->replace_count; ++j) {
+      bufprintf(tb, "      MAC Address %u: ", j);
+      dump_single_mac_address(tb, r->replace[j].macaddr);
+      bufprintf(tb, "      Interface %u: ", j);
+      if (r->replace[j].dev == NULL) {
+        bufprintf(tb, "(None)\n");
+      }
+      else {
+        bufprintf(tb, "%.*s\n", (int)sizeof(r->replace[j].dev->name), r->replace[j].dev->name);
+      }
     }
 
     bufprintf(tb, "    Filter: %.*s\n", (int)sizeof(r->filter->conf.name), r->filter->conf.name);
