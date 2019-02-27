@@ -33,6 +33,7 @@ mrm_perform_ipv4_remap(
   union {
     const struct udphdr * udph;
     const struct tcphdr * tcph;
+    const void *          transportptr;
   } u;
   unsigned i;
   unsigned short src_port;
@@ -44,18 +45,30 @@ mrm_perform_ipv4_remap(
   validate_port = 0;
   iph = ip_hdr(skb);
 
+  /*
+    compute the pointer to the transport (udp/tcp/whatever l4 protocol) header here...
+
+    unfortunately the sk_buff does not always have it's transport_header member
+    populated. I am hesitant to make a call to skb_set_transport_header() anywhere
+    in here (which feels more like "the right way" to do this) because I want
+    to minimize changes in state to the sk_buff.
+
+    i really probably should be using ip_hdrlen() here, but in the spirit of
+    performance and since we already have the pointer to the iphdr struct, a
+    simple * 4 to the ihl field will do.
+  */
+  u.transportptr = ((unsigned char *)iph) + (iph->ihl * 4);
+
   switch (iph->protocol) {
   case IPPROTO_TCP:
     validate_port = 1;
     ruleref = &target_rules->tcp_targeted_rules;
-    u.tcph  = tcp_hdr(skb);
     src_port = ntohs(u.tcph->source);
     dst_port = ntohs(u.tcph->dest);
     break;
   case IPPROTO_UDP:
     validate_port = 1;
     ruleref = &target_rules->udp_targeted_rules;
-    u.udph  = udp_hdr(skb);
     src_port = ntohs(u.udph->source);
     dst_port = ntohs(u.udph->dest);
     break;
