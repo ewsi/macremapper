@@ -139,7 +139,7 @@ remap(int argc, char **argv) {
   if (argc < 5) return 1; /* defensive */
 
   /* initialize variables and put things into human-readable variable names */
-  bzero(&re, sizeof(re));
+  memset(&re, 0, sizeof(re));
   filter_name   = argv[2];
   match_macaddr = argv[3];
 
