@@ -319,7 +319,7 @@ filter_file_loadf(struct mrm_filter_config * const output, FILE * const f) {
     return -1;
 
   output->rules_active = 0;
-  memset(output->rules, 0, sizeof(output->rules)); /* defensive */
+  bzero(output->rules, sizeof(output->rules)); /* defensive */
 
   for (linenum = 1; fgets(buf, sizeof(buf), f) != NULL; linenum++) {
 
