@@ -13,6 +13,7 @@
 #include "./macremapper_ioctl.h"
 #include "./bufprintf.h"
 
+#include <linux/version.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
@@ -80,13 +81,14 @@ mrm_handle_read(struct file *f, char __user *buf, size_t size, loff_t *off) {
 }
 
 static long
-mrm_handle_ioctl(struct file *f, unsigned int type, void __user *param) {
+mrm_handle_ioctl(struct file *f, unsigned int type, unsigned long arg) {
   union {
     struct mrm_filter_config  filt_conf;
     struct mrm_remap_entry    remap_entry;
     unsigned                  count;
   } u;
   int rv;
+  void __user *param = (void __user *)arg;
 
   mutex_lock(&_ctrl_mutex);
 
@@ -159,6 +161,14 @@ fail_fault:
 }
 
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+static const struct proc_ops _fops = {
+	.proc_open	= mrm_handle_open,
+	.proc_release	= mrm_handle_release,
+	.proc_read	= mrm_handle_read,
+	.proc_ioctl	= mrm_handle_ioctl,
+};
+#else
 static const struct file_operations _fops = {
   owner:           THIS_MODULE,
   open:            &mrm_handle_open,
@@ -166,6 +176,7 @@ static const struct file_operations _fops = {
   read:            &mrm_handle_read,
   unlocked_ioctl:  (void*)&mrm_handle_ioctl,
 };
+#endif
 
 int mrm_init_ctlfile( void ) {
   struct proc_dir_entry *pde;
